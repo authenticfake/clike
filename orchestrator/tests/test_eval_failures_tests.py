@@ -96,6 +96,33 @@ class TimeoutAloneTests(unittest.TestCase):
         self.assertTrue(wrong.blocking)
 
 
+    def test_a_port_taken_by_another_promoted_reqs_server_is_run_again_alone(self):
+        # lead-generation REQ-005: REQ-003's browser suite found 127.0.0.1:8001 held by another REQ's suite
+        runner = EvalRunner(Path("/nonexistent"))
+        clash = self._case("regression::REQ-003::browser-e2e",
+                           "Error: http://127.0.0.1:8001/health/live is already used, make sure that nothing is running "
+                           "on the port/url or set reuseExistingServer:true in config.webServer.")
+        held = self._case("regression::REQ-004::api", "OSError: [Errno 98] Address already in use")
+        outcomes = {"REQ-003": True, "REQ-004": False}
+
+        def fake_runner(req_id, other, candidate_src):
+            def run_profile(profile, ltc, req_id, checks):
+                return SimpleNamespace(cases=[SimpleNamespace(name=c, passed=outcomes[other]) for c in checks])
+            return SimpleNamespace(run_profile=run_profile)
+
+        with patch.object(runner, "_regression_runner", side_effect=fake_runner), \
+                patch("eval_runner.json.loads", return_value={}), patch.object(Path, "read_text", return_value="{}"):
+            runner._rerun_timeouts_alone("REQ-005", Path("/c/src"), [clash, held], {})
+        self.assertFalse(clash.blocking)
+        self.assertIn("found its port taken by another promoted REQ's server", clash.stderr)
+        self.assertTrue(held.blocking)
+        self.assertIn("keeps a server on that port", held.stderr)
+        for text in ("listen EADDRINUSE: address already in use :::3000", "Port 5173 is already in use",
+                     "OSError: [Errno 48] Address already in use"):
+            self.assertTrue(eval_failures.port_in_use(text), text)
+        self.assertFalse(eval_failures.port_in_use("AssertionError: port 8001 expected"))
+
+
 class NodeManifestTests(unittest.TestCase):
     def test_a_declared_package_json_installs_whatever_the_main_runtime(self):
         # B2B REQ-038: a Python LTC with a web frontend named src/web/package.json; no install ran

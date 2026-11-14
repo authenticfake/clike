@@ -5133,16 +5133,23 @@ class EvalRunner:
     def _rerun_timeouts_alone(
         self, req_id: Optional[str], candidate_src: Path, cases: List[EvalCase], superseded: Dict[str, Dict[str, str]],
     ) -> None:
-        """Blocking regression failures that ran out of time while several promoted REQs ran side by
-        side: each runs again alone, after the others. One that passes alone was slowed by the parallel
-        load (B2B REQ-037: a 30 s test, a database connection, a 300 s suite, a dev server start), not
-        broken by the candidate: a warning, never repaired. One that fails alone too stays blocking."""
+        """Blocking regression failures caused by the promoted REQs running side by side: one that ran out
+        of time (B2B REQ-037: a 30 s test, a database connection, a 300 s suite, a dev server start) or
+        found its port taken by another REQ's server (lead-generation REQ-005: two browser suites on
+        127.0.0.1:8001) runs again alone, after the others. One that passes alone was the parallel run,
+        not the candidate: a warning, never repaired. One that fails alone too stays blocking."""
         slow: Dict[str, List[EvalCase]] = {}
+        ports: set = set()
         for case in cases:
             if case.passed or not case.blocking or case.blocked or not _is_regression_test_case(case):
                 continue
             other, sep, check = case.name.partition("::")[2].partition("::")
-            if not sep or not eval_failures.timed_out(case.excerpt or f"{case.stdout or ''}\n{case.stderr or ''}"):
+            text = case.excerpt or f"{case.stdout or ''}\n{case.stderr or ''}"
+            if not sep:
+                continue
+            if eval_failures.port_in_use(text):
+                ports.add(case.name)
+            elif not eval_failures.timed_out(text):
                 continue
             slow.setdefault(other, []).append(case)
         for other, failing in slow.items():
@@ -5162,11 +5169,16 @@ class EvalRunner:
             for case in failing:
                 again = alone.get(case.name.split("::", 2)[2])
                 if again is not None and again.passed:
-                    note = (f"{_CONTENTION_NOTE}: {case.name} ran out of time while {regression_workers()} promoted REQs ran "
-                            "side by side, and passes when run alone: the sandbox load, not this candidate "
+                    what = ("found its port taken by another promoted REQ's server" if case.name in ports
+                            else "ran out of time")
+                    note = (f"{_CONTENTION_NOTE}: {case.name} {what} while {regression_workers()} promoted REQs ran "
+                            "side by side, and passes when run alone: the parallel run, not this candidate "
                             "(fewer at a time: CLIKE_EVAL_REGRESSION_WORKERS).")
                     case.blocking = False
-                    log.info("%s passes alone: parallel load", case.name)
+                    log.info("%s passes alone: parallel run", case.name)
+                elif case.name in ports:
+                    note = (f"{_CONTENTION_NOTE}: {case.name} found its port taken, and again when run alone: the "
+                            "candidate keeps a server on that port (a process left running, a fixed port it now uses).")
                 else:
                     note = (f"{_CONTENTION_NOTE}: {case.name} ran out of time, and again when run alone: the slowdown "
                             "comes with the candidate (a slower path, a wait that never ends, a service that does not start).")
