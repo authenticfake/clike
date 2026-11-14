@@ -276,6 +276,21 @@ _SELF_INCOMPLETE_RE = re.compile(
     r"(?:is|are) not (?:yet )?(?:implemented|wired)|implementation gaps? remain",
     re.IGNORECASE,
 )
+# a negation earlier in the same clause turns the phrase around ("no implementation gap remains")
+_NEGATION_RE = re.compile(r"\b(?:no|none|nothing|without|never|zero)\b", re.IGNORECASE)
+
+
+def _declares_incomplete(line: str) -> bool:
+    """True when a SELF_REVIEW line says the KIT is not complete, not when it denies it
+    (lead-generation REQ-002: "All twelve criteria are done; no mandatory implementation gap remains"
+    blocked a complete KIT and cost a repair)."""
+    for match in _SELF_INCOMPLETE_RE.finditer(line):
+        clause = re.split(r"[.;:!?]", line[: match.start()])[-1]
+        if not _NEGATION_RE.search(clause):
+            return True
+    return False
+
+
 _SHARED_FILES_NOTE = "[CLike EvalRunner] Shared files changed"
 _SERVICE_BROKEN_NOTE = "[CLike EvalRunner] Service broken by the candidate"
 # A test file by name in Python, JS/TS, Java/Kotlin, Go, C# (test_x.py, x_test.go, x.test.ts, x.spec.js, XTest.java, XTests.cs).
@@ -4550,7 +4565,7 @@ class EvalRunner:
             review = (kit / "docs" / "SELF_REVIEW.md").read_text(encoding="utf-8", errors="ignore")
         except OSError:
             pass
-        incomplete = [line.strip() for line in review.split("\n") if _SELF_INCOMPLETE_RE.search(line)][:6]
+        incomplete = [line.strip() for line in review.split("\n") if _declares_incomplete(line)][:6]
         path = kit / "docs" / "ACCEPTANCE.json"
         name = "acceptance::coverage"
         if not path.is_file():

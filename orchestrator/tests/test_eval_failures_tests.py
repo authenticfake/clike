@@ -213,6 +213,24 @@ class AcceptanceCoverageTests(unittest.TestCase):
             self.assertFalse(case.passed)
             self.assertIn("SELF_REVIEW.md says otherwise", case.stderr)
 
+    def test_a_self_review_denying_gaps_is_not_read_as_incomplete(self):
+        # lead-generation REQ-002: a complete KIT blocked by "no mandatory implementation gap remains"
+        import tempfile
+        import eval_runner
+
+        review = ("Final verification: the sandbox command passed all 13 LTC cases.\n"
+                  "All twelve criteria are done; no mandatory implementation gap remains.\n"
+                  "Nothing remains unimplemented. There are no features that are not implemented.\n")
+        with tempfile.TemporaryDirectory() as tmp:
+            done = [{"id": f"REQ-038-A0{n}", "status": "done", "checks": ["unit"]} for n in (1, 6, 7)]
+            case = self._case(self._project(tmp, acceptance=done, review=review))
+            self.assertTrue(case.passed, case.stderr)
+        # a real admission still counts, also next to a denial in another clause
+        self.assertTrue(eval_runner._declares_incomplete("No blockers found; the export screen remains unimplemented."))
+        self.assertTrue(eval_runner._declares_incomplete("Implementation gaps remain in the report module."))
+        self.assertFalse(eval_runner._declares_incomplete("No implementation gaps remain."))
+        self.assertFalse(eval_runner._declares_incomplete("The KIT is complete without parts that are not implemented."))
+
     def test_the_field_names_agents_use_are_understood(self):
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
