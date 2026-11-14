@@ -41,6 +41,9 @@ class EvalRunRequest(BaseModel):
     # Every check, and the regression of these promoted REQs only: a targeted re-eval in a repair
     # loop (the REQs that failed before the repair). Never a verdict.
     regression_reqs: Optional[List[str]] = None
+    # The checks a local agent runs through CLike while it writes or repairs a KIT
+    # (eval-check-bridge.js): never a verdict, never the acceptance lock.
+    agent_check: Optional[bool] = False
 
     class Config:
         extra = "ignore"
@@ -674,7 +677,10 @@ async def eval_run(
     # A partial run (the agent re-running checks while it repairs) is never a verdict: the
     # acceptance changes it may contain are governed when the agent finishes, then the full eval.
     targeted = bool(args.regression and args.regression_reqs)
-    if not is_manual and not args.checks and not targeted:
+    # an agent's run while it writes the KIT names no check: still not the first eval (which takes
+    # the lock of the acceptance surface the KIT delivered), nor a verdict the gate may reuse
+    agent_check = bool(payload is not None and payload.agent_check)
+    if not is_manual and not args.checks and not targeted and not agent_check:
         req = _effective_req_id(args.req_id, ltc, profile_path)
         integrity = _acceptance_integrity(prj, req)
         if integrity and not integrity["ok"]:
@@ -714,13 +720,13 @@ async def eval_run(
 
     if not is_manual:
         rep = _with_structural_cases(rep, _required_output_blockers(prj, args.req_id or rep.req_id))
-    if not is_manual and not args.checks and not targeted:
+    if not is_manual and not args.checks and not targeted and not agent_check:
         # the full verdict, reusable by the gate while its inputs stay the same
         try:
             eval_verdicts.record(prj, _effective_req_id(args.req_id, ltc, profile_path), bool(args.regression), report_to_dict(rep))
         except Exception as exc:  # an optimisation only
             log.warning("eval verdict not recorded: %s", exc)
-    if targeted and not is_manual and not args.checks:
+    if targeted and not is_manual and not args.checks and not agent_check:
         try:
             eval_verdicts.record_targeted(prj, _effective_req_id(args.req_id, ltc, profile_path), report_to_dict(rep))
         except Exception as exc:  # an optimisation only

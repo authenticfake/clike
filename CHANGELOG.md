@@ -25,6 +25,10 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ### Fixed
 
+- The checks a local agent runs in the eval sandbox while it writes a KIT no longer take the
+  acceptance lock nor count as a verdict: the first eval did, and stopped the REQ as "changed after
+  the lock" when the agent improved its own tests afterwards. Only the bridge marks its runs; the
+  adoption baseline and the finalize verification are unchanged.
 - BMAD `/plan`: the architect (default role) writes the plan; the pm is now a companion-only role
   that reads `PLAN.md` and `plan.json` and writes stories, story map and implementation readiness.
   Before, both roles regenerated the plan and the second run discarded the first. `/plan --agent pm`

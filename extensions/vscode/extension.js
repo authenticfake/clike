@@ -1231,7 +1231,7 @@ async function executeLocalAgentPackage({
     evalCheckBridge = startEvalCheckBridge({
       workspaceRoot: toFsPath(wsroot),
       maxRuns: Number(evalCheck.max_runs || 8),
-      runChecks: (checks) => postEvalChecks(evalCheck.profile, wsroot, reqForAgent, checks),
+      runChecks: (checks) => postEvalChecks(evalCheck.profile, wsroot, reqForAgent, checks, { agentCheck: true }),
       log,
       targets: Array.isArray(evalCheck.targets) ? evalCheck.targets : [],
       // a repair's changes to existing (locked) tests are governed after the run: the agent is told

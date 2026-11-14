@@ -217,6 +217,26 @@ class GateIntegrityTests(unittest.TestCase):
         self.assertEqual(r.json()["reason_code"], "ACCEPTANCE_TAMPERED")
         self.assertFalse(r.json()["promotable"])
 
+    def test_an_agent_check_while_writing_the_kit_neither_locks_nor_gives_a_verdict(self):
+        # cdl-pipeline REQ-003: the agent's run of all its checks during the KIT took the lock; the
+        # tests it improved afterwards stopped the first eval as "changed after the lock".
+        from services import eval_verdicts
+        from services.gate_integrity import has_lock
+
+        r = self.client.post(
+            "/v1/eval/run",
+            params={"profile": f"runs/kit/{REQ}/ci/LTC.json", "project_root": str(self.proj), "req_id": REQ},
+            json={"agent_check": True},
+            headers=AUTH,
+        )
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertFalse(has_lock(self.proj, REQ))
+        self.assertIsNone(eval_verdicts.reusable(self.proj, REQ, False))
+        (self.kit / "test" / "test_app.py").write_text(TEST_PY + "\n\ndef test_more():\n    assert True\n")
+        first = self._eval()  # the first eval locks the surface the KIT delivered
+        self.assertNotIn("changed", json.dumps(first.json().get("integrity") or {}))
+        self.assertTrue(has_lock(self.proj, REQ))
+
     def test_manual_verdict_is_not_accepted_on_gate_check(self):
         g = self._gate(mode="manual", verdict="pass")  # query
         self.assertEqual(g.status_code, 400)

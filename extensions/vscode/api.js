@@ -58,7 +58,7 @@ async function postEvalRun(profile, workspaceRoot,req_id, mode, modeResult, sign
  * Re-runs only the named checks of a REQ's eval in the sandbox (no regression, never a verdict):
  * the eval checks a local agent asks for while it repairs (eval-check-bridge.js).
  */
-async function postEvalChecks(profile, workspaceRoot, reqId, checks) {
+async function postEvalChecks(profile, workspaceRoot, reqId, checks, { agentCheck = false } = {}) {
   const projectName = getProjectNameFromWorkspace();
   if (!projectName) throw new Error('Cannot resolve current project name');
   const url = orchestratorUrl('/v1/eval/run') +
@@ -78,6 +78,9 @@ async function postEvalChecks(profile, workspaceRoot, reqId, checks) {
     ltc: raw ? JSON.parse(raw) : null,
     regression: regressionReqs.length > 0,
     checks: own.length ? own : null,
+    // a local agent's run (eval-check-bridge.js): never a verdict nor the first eval that locks
+    // the acceptance surface
+    ...(agentCheck ? { agent_check: true } : {}),
     ...(regressionReqs.length ? { regression_reqs: regressionReqs } : {}),
   };
   return requestJson('POST', url, { body, timeoutMs: evalTimeoutMs() });
