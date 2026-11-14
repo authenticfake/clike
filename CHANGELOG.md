@@ -20,6 +20,9 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 - Eval regression: `CLIKE_EVAL_REGRESSION_WORKERS` defaults to `auto`, the promoted REQs the
   sandbox's memory and CPUs sustain side by side (about 2 GB and 2 CPUs each, at most 4): a 4 GB
   sandbox keeps 2, a 10 GB / 7 CPU one runs 3. A number still sets it.
+- KIT instructions: a frontend package anywhere under src/ (not only src/frontend) is declared as
+  the LTC's `package_json`, so CLike installs it once per lockfile and reuses it in every check and
+  in later REQs' regression; check commands run the package scripts and never `npm ci` themselves.
 - Eval and gate reports carry `timings`: setup, the REQ's checks, the regression and each promoted
   REQ in it, with the workers used.
 

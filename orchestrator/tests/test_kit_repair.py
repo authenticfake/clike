@@ -186,3 +186,21 @@ def test_kit_and_repair_keep_promoted_tests_valid_for_the_reqs_that_follow():
     repair_rule = next(r for r in repair_rules("REQ-002") if "regression of a promoted REQ" in r)
     assert "so it holds for the REQs that follow too" in repair_rule
     assert "never pin this REQ's value in its place" in repair_rule
+
+
+def test_every_phase_text_rule_is_text_not_an_accidental_yaml_mapping():
+    # an unquoted ": " inside a rule makes YAML read it as a mapping: the model then gets "{'For …': …}"
+    import yaml
+
+    def walk(node, where):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                walk(value, f"{where}.{key}")
+        elif isinstance(node, list):
+            for i, item in enumerate(node):
+                assert not isinstance(item, dict) or len(item) != 1 or isinstance(next(iter(item.values())), (dict, list)), \
+                    f"{where}[{i}] is a one-key mapping (quote the rule): {str(item)[:120]}"
+                walk(item, f"{where}[{i}]")
+
+    for path in sorted((ORCHESTRATOR_ROOT / "phases").glob("*/text.yaml")):
+        walk(yaml.safe_load(path.read_text(encoding="utf-8")), path.parent.name)
