@@ -106,6 +106,23 @@ test('a workspace CLike could not prepare stops the loop: no check ran, nothing 
   assert.equal(nextAutoGateStep({ cycle: 0, maxCycles: 2 }, { ...report, gate: 'FAIL' }).action, 'stop');
 });
 
+test('a regression workspace CLike could not prepare stops the loop at once, before any repair', () => {
+  // cdl-pipeline REQ-009: REQ-001's regression workspace could not be composed after a rebuild; the
+  // --fix loop ran a repair for it (the REQ's own checks all passed)
+  const report = { status: 'FAIL', cases: [
+    { name: 'unit-tests', passed: true },
+    { name: 'regression::REQ-001::env::prepare-workspace', passed: false, blocked: true, blocking: true, code: 997,
+      stderr: "prepare eval workspace failed: [Errno 13] Permission denied: '/var/clike-eval/x/dist'\n[CLike EvalRunner] nothing to repair" },
+  ] };
+  const step = nextAutoEvalStep({ cycle: 0, maxCycles: 2 }, report);
+  assert.equal(step.action, 'stop');
+  assert.match(step.reason, /could not prepare the eval workspace of REQ-001's regression[\s\S]*Permission denied/);
+  assert.equal(nextAutoGateStep({ cycle: 0, maxCycles: 2 }, { ...report, gate: 'FAIL' }).action, 'stop');
+  // a check merely named like it is not a workspace failure
+  const named = { status: 'FAIL', cases: [{ name: 'env::prepare-workspace-docs', passed: false, code: 1, stderr: 'x', blocking: true }] };
+  assert.equal(nextAutoEvalStep({ cycle: 0, maxCycles: 2 }, named).action, 'repair');
+});
+
 test('/tools shows versions and reminds an update; /tools update shows what changed', () => {
   const data = {
     catalog: { jdk: { group: 'runtimes', about: 'JDK', binaries: ['javac'] } },

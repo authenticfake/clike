@@ -287,6 +287,11 @@ Both local executors currently support:
   (`repair_context.auto_eval` in the context); the agent can re-run the failed checks in the real
   eval sandbox with `node .clike/bin/eval-check.mjs <check>…` (served by the extension,
   `clike.autoEval.agentEvalChecks`), without the token or network access
+- verify before finish: a base KIT (and the code stage of acceptance-first) runs all its checks in
+  the real eval sandbox before it finishes, with `node .clike/bin/eval-check.mjs` and no arguments
+  (databases, browsers and registry installs its own sandbox may lack; up to
+  `clike.kit.agentEvalChecks` runs, 0 = off), and writes `ACCEPTANCE.json` from that run, so the
+  first eval passes instead of starting a repair. The full eval, with the regression, still decides.
 
 Governance with agents: the agent writes directly, so the extension snapshots `test/` and `ci/`
 before a repair or a code-only KIT, submits what changed to `POST /v1/acceptance/amend` and

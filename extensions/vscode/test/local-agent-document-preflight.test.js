@@ -13,7 +13,12 @@ test('/idea is blocked when there are no current-run attachments', () => {
   });
   assert.strictEqual(result.ok, false);
   assert.strictEqual(result.code, 'IDEA_REQUIRES_CURRENT_ATTACHMENT');
-  assert.match(result.message, /without at least one attached source file/i);
+  assert.match(result.message, /without a source/i);
+});
+
+test('/idea runs without attachments when the project has sources in docs/inputs or docs/reference', () => {
+  assert.strictEqual(evaluateDocumentPhaseInputPreflight({ phase: 'idea', attachmentCount: 0, sourceFileCount: 3 }).ok, true);
+  assert.strictEqual(evaluateDocumentPhaseInputPreflight({ phase: 'idea', attachmentCount: 0, sourceFileCount: 0 }).ok, false);
 });
 
 test('/idea is allowed with one current-run attachment', () => {
@@ -67,6 +72,37 @@ test('/plan is allowed when docs/harper/SPEC.md exists', () => {
     specPresent: true,
   });
   assert.strictEqual(result.ok, true);
+});
+
+test('BMAD pm on /plan is blocked until the architect has written the plan', () => {
+  const result = evaluateDocumentPhaseInputPreflight({
+    phase: 'plan', specPresent: true, methodology: 'bmad', agent: 'pm', planPresent: false,
+  });
+  assert.strictEqual(result.ok, false);
+  assert.strictEqual(result.code, 'PLAN_PM_REQUIRES_ARCHITECT_PLAN');
+  assert.match(result.message, /architect/);
+});
+
+test('BMAD pm on /plan is blocked when the plan is older than the SPEC', () => {
+  const result = evaluateDocumentPhaseInputPreflight({
+    phase: 'plan', specPresent: true, methodology: 'bmad', agent: 'pm', planPresent: true, planOlderThanSpec: true,
+  });
+  assert.strictEqual(result.ok, false);
+  assert.strictEqual(result.code, 'PLAN_PM_REQUIRES_CURRENT_PLAN');
+});
+
+test('BMAD pm on /plan runs on a current architect plan', () => {
+  const result = evaluateDocumentPhaseInputPreflight({
+    phase: 'plan', specPresent: true, methodology: 'bmad', agent: 'pm', planPresent: true, planOlderThanSpec: false,
+  });
+  assert.strictEqual(result.ok, true);
+});
+
+test('the architect and native /plan need no existing plan', () => {
+  for (const args of [{ methodology: 'bmad', agent: 'architect' }, { methodology: 'bmad' }, {}]) {
+    const result = evaluateDocumentPhaseInputPreflight({ phase: 'plan', specPresent: true, planPresent: false, ...args });
+    assert.strictEqual(result.ok, true, JSON.stringify(args));
+  }
 });
 
 test('non-document phases are never blocked by this preflight', () => {

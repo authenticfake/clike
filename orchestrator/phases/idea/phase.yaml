@@ -7,28 +7,36 @@ local_agent:
   title: IDEA
   allowed_write_roots:
   - docs/harper/IDEA.md
+  - docs/harper/inputs/
   required_reads:
-  - current-run attachments listed in this package context (the ONLY source of truth for /idea)
+  - current-run attachments listed in this package context and the project context sources (requirements, reference) — the only sources of truth for /idea
+  - docs/harper/inputs/ when present (the previous project inputs, to keep their IDs stable)
   - Harper chat history only to clarify user intent, never as a source document
   - .clike/project.json when present (project metadata only, not idea source)
   output_contract:
     always:
     - docs/harper/IDEA.md
+    - docs/harper/inputs/REQUIREMENTS.md
+    - docs/harper/inputs/EDGE_CASES.md
+    - docs/harper/inputs/JOURNEYS.md
+    - docs/harper/inputs/TEST_SCENARIOS.md
+    - docs/harper/inputs/DECISIONS.md
+    - docs/harper/inputs/COVERAGE.md
     conditional: []
   mission:
-    purpose: Synthesize a concise, testable canonical Harper IDEA.md strictly from current-run attachments and chat intent.
+    purpose: Synthesize a concise, testable canonical Harper IDEA.md and the structured project inputs (docs/harper/inputs/) strictly from the sources and chat intent.
     canonical_output: docs/harper/IDEA.md
   hard_rules:
-  - Write only docs/harper/IDEA.md. Do not write any other docs/harper path.
+  - Write only docs/harper/IDEA.md and the project inputs under docs/harper/inputs/. Do not write any other docs/harper path.
   - docs/harper/IDEA.md must start with `# IDEA — <Project Name>`.
   - 'Use the canonical IDEA schema headings exactly once and in order: Vision, Problem Statement, Target Users & Context, Value & Outcomes, Out of Scope, Technology Constraints, Risks & Assumptions, Success Metrics.'
   - Technology Constraints must contain exactly one valid fenced YAML block.
-  - Use ONLY the current-run attachments listed in this package as /idea source material.
+  - Use ONLY the current-run attachments listed in this package and the project context sources as /idea source material.
   - 'Do not read or reuse stale workspace files: do not read ORI.IDEA.md, prior IDEA* variants, stale .clike/uploads files, or prior-session files unless they are explicitly listed in the current attachment manifest.'
   - Treat any existing docs/harper/IDEA.md only as the overwrite target, never as a source of truth.
   - 'Attachment-first: do not invent facts, vendors, APIs, endpoints, project keys, or frameworks.'
   - Do not hallucinate a stack (Python, Node, cloud provider, database, queue, UI framework, IaC tool, deployment target) unless evidenced.
-  - Keep IDEA.md concise and downstream-ready; it is not a PRD, architecture doc, or SPEC draft.
+  - Keep IDEA.md concise and downstream-ready; it is not a PRD, architecture doc, or SPEC draft. The detail goes to docs/harper/inputs/.
   - Do not run git commands.
   - Do not modify src/, test/, tests/, runs/kit/, runs/eval/, or runs/gate/.
   validation_expectations:
@@ -37,9 +45,10 @@ local_agent:
   - Every canonical heading appears exactly once and in order.
   - Technology Constraints contains exactly one valid fenced YAML block.
   - No template markers (BEGIN_FILE/END_FILE) or placeholders remain in file content.
+  - The six project inputs exist under docs/harper/inputs/, with IDs, and COVERAGE.md maps every source section.
   prompt_lines:
   - 'Mission:'
-  - '- Produce the canonical docs/harper/IDEA.md for this idea.'
+  - '- Produce the canonical docs/harper/IDEA.md for this idea and the project inputs under docs/harper/inputs/ (rules below).'
   - '- Use attachments as the primary source of truth; use chat only to clarify intent.'
   - '- Mark estimated values as explicit assumptions; never invent vendors, endpoints, or frameworks.'
   - ''
@@ -55,7 +64,8 @@ local_agent:
   - '- ## Success Metrics'
   - ''
   - 'Allowed writes:'
-  - '- docs/harper/IDEA.md (only)'
+  - '- docs/harper/IDEA.md'
+  - '- docs/harper/inputs/REQUIREMENTS.md, EDGE_CASES.md, JOURNEYS.md, TEST_SCENARIOS.md, DECISIONS.md, COVERAGE.md'
 canonical_expectations:
 - '# IDEA — <Project Name>'
 - Attachment-first
@@ -64,3 +74,4 @@ canonical_expectations:
 - No `BEGIN_FILE`, `END_FILE`, unresolved placeholders, or prompt template text
 accepted_result_paths:
 - docs/harper/IDEA.md
+- docs/harper/inputs/*.md

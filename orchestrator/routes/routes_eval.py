@@ -16,7 +16,7 @@ from pydantic import BaseModel
 import httpx
 
 from eval_runner import EvalCase, EvalReport, EvalRunner, eval_progress, report_from_dict, report_to_dict
-from services import eval_verdicts
+from services import eval_telemetry, eval_verdicts
 import eval_tools
 from sandbox_resources import SANDBOX_EXHAUSTED_REASON
 from utils.safe_paths import UnsafePathError, is_within_any, resolve_within, validate_req_id
@@ -41,6 +41,9 @@ class EvalRunRequest(BaseModel):
     # Every check, and the regression of these promoted REQs only: a targeted re-eval in a repair
     # loop (the REQs that failed before the repair). Never a verdict.
     regression_reqs: Optional[List[str]] = None
+    # The checks a local agent runs through CLike while it writes or repairs a KIT
+    # (eval-check-bridge.js): never a verdict, never the acceptance lock.
+    agent_check: Optional[bool] = False
 
     class Config:
         extra = "ignore"
@@ -376,6 +379,33 @@ def _load_file_requirements(project_root: Path, req_id: Optional[str]) -> Option
     return None
 
 
+# Installed dependencies and caches are never the application's own launcher or manifest.
+_NOT_APPLICATION_DIRS = frozenset({
+    "node_modules", ".venv", "venv", "site-packages", "__pycache__", ".next", "dist", "build",
+    ".mypy_cache", ".pytest_cache", ".ruff_cache", "local-eval-workspaces",
+})
+
+
+def _application_files(root: Path):
+    """Files under ``root``, outside installed dependencies, caches and build output."""
+    if not root.is_dir():
+        return
+    for path in root.rglob("*"):
+        if path.is_file() and not _NOT_APPLICATION_DIRS.intersection(path.relative_to(root).parts):
+            yield path
+
+
+def _canonical_has_runtime_manifest(project_root: Path) -> bool:
+    """The promoted application's manifest: in the canonical src/ or at the project root (never in
+    runs/, another REQ's KIT, nor in installed dependencies)."""
+    if any(p.name in _RUNTIME_MANIFEST_NAMES for p in project_root.iterdir() if p.is_file()) if project_root.is_dir() else False:
+        return True
+    return any(
+        p.name in _RUNTIME_MANIFEST_NAMES or p.suffix.lower() in {".csproj", ".fsproj", ".vbproj", ".sln", ".mpr"}
+        for p in _application_files(project_root / "src")
+    )
+
+
 def _has_runtime_manifest_under_candidate(req_root: Path) -> bool:
     search_roots = [req_root / "src"]
     # Some ecosystems keep the promotion-ready manifest at the candidate package root.
@@ -384,9 +414,7 @@ def _has_runtime_manifest_under_candidate(req_root: Path) -> bool:
     for root in search_roots:
         if not root.exists():
             continue
-        for path in root.rglob("*"):
-            if not path.is_file():
-                continue
+        for path in _application_files(root):
             if "ci" in path.relative_to(req_root).parts:
                 continue
             if path.name in _RUNTIME_MANIFEST_NAMES:
@@ -417,9 +445,7 @@ def _has_composition_root_under_candidate(req_root: Path) -> bool:
     if not src_root.exists():
         return False
 
-    for path in src_root.rglob("*"):
-        if not path.is_file():
-            continue
+    for path in _application_files(src_root):
         if path.name in _COMPOSITION_ROOT_NAMES:
             return True
         if path.name.endswith("Application.java"):
@@ -451,13 +477,21 @@ def _required_output_blockers(project_root: Path, req_id: Optional[str]) -> List
 
         role = str(item.get("role") or "").strip()
 
-        if role == "execution_area_runtime_manifest" and not _has_runtime_manifest_under_candidate(req_root):
+        # A REQ that extends an application already promoted finds its launcher and manifest in the
+        # canonical tree: promotion adds the candidate's files and never removes them, so the solution
+        # stays runnable without a copy in every KIT (cdl-pipeline REQ-005, REQ-006: a repair dropped
+        # the copied __main__.py and a whole cycle went to putting it back).
+        if role == "execution_area_runtime_manifest" and not (
+            _has_runtime_manifest_under_candidate(req_root) or _canonical_has_runtime_manifest(project_root)
+        ):
             blockers.append({
                 "role": role,
                 "reason": "FILE_REQUIREMENTS requires a promotion-ready runtime manifest for a runnable execution area, but no ecosystem-native manifest was found outside ci/.",
             })
 
-        if role in {"solution_composition_root", "module_launcher"} and not _has_composition_root_under_candidate(req_root):
+        if role in {"solution_composition_root", "module_launcher"} and not (
+            _has_composition_root_under_candidate(req_root) or _has_composition_root_under_candidate(project_root)
+        ):
             blockers.append({
                 "role": role,
                 "reason": "FILE_REQUIREMENTS requires a runnable composition root/launcher, but no cross-language composition entry was found under candidate src/. " + _COMPOSITION_ROOT_HINT,
@@ -590,6 +624,7 @@ def _eval_payload(rep: EvalReport, req_id: Optional[str]) -> Dict[str, Any]:
         "sandbox_exhausted": rep.reason_code == SANDBOX_EXHAUSTED_REASON,
         "missing_tools": rep.missing_tools or [],
         "tools": rep.tools or {},
+        **({"timings": rep.timings} if rep.timings else {}),
         "passed": promotable,
         "execution_ok": not environment_blocked,
         "quality_passed": quality_passed,
@@ -639,6 +674,7 @@ async def eval_run(
     project_name: Optional[str] = Query(default=None),
     payload: Optional[EvalRunRequest] = Body(default=None),
 ):
+    started = time.monotonic()
     args = _merge_eval_args(
         profile_q=profile,
         project_root_q=project_root,
@@ -673,7 +709,10 @@ async def eval_run(
     # A partial run (the agent re-running checks while it repairs) is never a verdict: the
     # acceptance changes it may contain are governed when the agent finishes, then the full eval.
     targeted = bool(args.regression and args.regression_reqs)
-    if not is_manual and not args.checks and not targeted:
+    # an agent's run while it writes the KIT names no check: still not the first eval (which takes
+    # the lock of the acceptance surface the KIT delivered), nor a verdict the gate may reuse
+    agent_check = bool(payload is not None and payload.agent_check)
+    if not is_manual and not args.checks and not targeted and not agent_check:
         req = _effective_req_id(args.req_id, ltc, profile_path)
         integrity = _acceptance_integrity(prj, req)
         if integrity and not integrity["ok"]:
@@ -713,13 +752,13 @@ async def eval_run(
 
     if not is_manual:
         rep = _with_structural_cases(rep, _required_output_blockers(prj, args.req_id or rep.req_id))
-    if not is_manual and not args.checks and not targeted:
+    if not is_manual and not args.checks and not targeted and not agent_check:
         # the full verdict, reusable by the gate while its inputs stay the same
         try:
             eval_verdicts.record(prj, _effective_req_id(args.req_id, ltc, profile_path), bool(args.regression), report_to_dict(rep))
         except Exception as exc:  # an optimisation only
             log.warning("eval verdict not recorded: %s", exc)
-    if targeted and not is_manual and not args.checks:
+    if targeted and not is_manual and not args.checks and not agent_check:
         try:
             eval_verdicts.record_targeted(prj, _effective_req_id(args.req_id, ltc, profile_path), report_to_dict(rep))
         except Exception as exc:  # an optimisation only
@@ -730,6 +769,9 @@ async def eval_run(
     if reuse:
         payload["reused_targeted_at"] = reuse["at"]
     payload["regression"] = bool(args.regression) and (not args.checks or targeted)
+    if agent_check:
+        # an agent's run while it writes or repairs: never a verdict, whatever checks it ran
+        payload.update(agent_check=True, partial=True, promotable=False)
     if targeted:
         payload["regression_scope"] = args.regression_reqs
     if args.checks:
@@ -742,6 +784,9 @@ async def eval_run(
         payload["regression_scope"] = args.regression_reqs
         payload["partial"] = True
         payload["promotable"] = False
+    if not agent_check:  # an agent's own runs are part of its KIT's time
+        scope = "checks" if args.checks else "targeted" if targeted else "full"
+        eval_telemetry.record(prj, args.project_name, "eval", payload, started, scope)
     return payload
 
 
@@ -757,6 +802,7 @@ async def gate_check(
     project_name: Optional[str] = Query(default=None),
     payload: Optional[GateCheckRequest] = Body(default=None),
 ):
+    started = time.monotonic()
     args = _merge_gate_args(
         profile_q=profile,
         project_root_q=project_root,
@@ -879,7 +925,7 @@ async def gate_check(
     else:
         reason_code = f"GATE_BLOCKED_STATUS_{rep.status}"
 
-    return {
+    result = {
         "gate": hard_gate,
         "status": effective_status,
         "raw_eval_status": rep.status,
@@ -887,6 +933,7 @@ async def gate_check(
         "sandbox_exhausted": rep.reason_code == SANDBOX_EXHAUSTED_REASON,
         "missing_tools": rep.missing_tools or [],
         "tools": rep.tools or {},
+        **({"timings": rep.timings} if rep.timings else {}),
         "structural_blockers": structural_blockers,
         "profile": rep.profile,
         "req_id": rep.req_id,
@@ -909,6 +956,8 @@ async def gate_check(
         "strict_warnings": strict,
         "cases": [_case_payload(c) for c in rep.cases],
     }
+    eval_telemetry.record(prj, args.project_name, "gate", result, started, "gate")
+    return result
 
 
 class AcceptanceLockRequest(BaseModel):

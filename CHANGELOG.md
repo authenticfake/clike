@@ -4,6 +4,96 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+## [1.8.0] — 2026-11-14 — Verified before the eval
+
+### Changed
+
+- `/idea` writes the project inputs next to IDEA.md (`docs/harper/inputs/`: requirements with IDs and
+  sources, edge cases, journeys, test scenarios and fixtures, open decisions, a coverage map of every
+  source section), on every executor with the same rules and checks; `/spec`, `/plan` and `/extend`
+  read them before the raw documents, and a new `/idea` keeps their IDs. `/idea` also runs on the
+  documents in `docs/inputs/` without an attachment. The cloud output budget of `/idea` is 64k tokens.
+- Local agent KIT: the agent runs all the KIT's checks in the real eval sandbox
+  before it finishes (databases, browsers, registry installs its own sandbox may lack) and writes the
+  acceptance coverage from that run, so the first eval passes instead of starting a repair. Up to
+  `clike.kit.agentEvalChecks` runs (default 6, 0 = off); the full eval still decides.
+  Once its checks first pass, the regression of the promoted REQs runs in that same run, whatever
+  runs the agent has left, and two runs beyond the limit are kept for it: a change that breaks a
+  promoted REQ (a shared file, a contract, a migration, a new dependency's warnings) is fixed in the
+  KIT, not in a repair after the eval.
+- KIT instructions: a REQ's test helpers, fake servers and support modules go in its own test
+  directories, never in one that holds a promoted REQ's tests (a file there changes how those tests
+  are collected after promotion).
+- Telemetry: evals (full, targeted, check re-runs) and gates are recorded in `.clike/telemetry` and in
+  the telemetry portal with their duration, status, check counts and sandbox timings; the portal sums
+  their time per phase and per REQ, outside providers and models. An agent's own runs while it writes a
+  KIT stay part of the KIT's time.
+- A chat reopened while a run goes on (an `/autopilot`, an `--fix` loop started in a chat closed
+  since) follows it live: it says the run is going on, receives its messages and run card, stays busy
+  until it ends and can stop it from the card.
+- KIT instructions, all executors: a check the agent's own environment cannot run does not make a
+  criterion partial (the eval runs it), and install commands of the checks work on a clean machine
+  with registry access (no offline-only flags: the eval starts with empty package caches).
+- KIT and repair instructions: tests assert what their REQ delivers, never a state later REQs change
+  on purpose (the head migration by name, an exact total of routes, tables or registry entries); a
+  repair reconciling such a promoted test makes it hold for the REQs that follow instead of pinning
+  its own value, which failed the regression again at every REQ adding a migration.
+- Eval regression: `CLIKE_EVAL_REGRESSION_WORKERS` defaults to `auto`, the promoted REQs the
+  sandbox's memory and CPUs sustain side by side (about 2 GB and 2 CPUs each, at most 4): a 4 GB
+  sandbox keeps 2, a 10 GB / 7 CPU one runs 3. A number still sets it.
+- KIT instructions: a frontend package anywhere under src/ (not only src/frontend) is declared as
+  the LTC's `package_json`, so CLike installs it once per lockfile and reuses it in every check and
+  in later REQs' regression; check commands run the package scripts and never `npm ci` themselves.
+- Eval and gate reports carry `timings`: setup, the REQ's checks, the regression and each promoted
+  REQ in it, with the workers used.
+
+### Fixed
+
+- Closing the CLike chat no longer stops a running `/autopilot` or `--fix` loop: the run goes on
+  (before, "Webview is disposed" parked the REQ right after its KIT).
+- An eval after a rebuild of the eval sandbox no longer blocks on a work tree the previous container
+  left: a file it built under its private security label could not be deleted by the new one
+  (`env::prepare-workspace`: Permission denied); what cannot be removed is moved aside. A regression
+  workspace CLike could not prepare now stops the `--fix` loop with no repair, like the REQ's own.
+- A promoted REQ's check that failed on the promoted tree before is called unstable only when it
+  now fails with the same errors: a new error is the candidate's regression and blocks. Before, a
+  REQ-002 test broken by a later REQ's name collision passed as "nondeterministic" and stayed broken in
+  the product. KIT self-check: synthetic entries a test registers take names no real one will take.
+- Review of the release's changes, end to end on every executor: the launcher/manifest of the
+  promoted application is looked for only in the canonical `src/` and the project root (not in other
+  KITs, `node_modules` or venvs); cloud `/idea` accepts further files in `docs/harper/inputs/` like the
+  local agents; the project inputs never take the context budget of a release's requirements or of
+  `/idea`'s own sources, and `/idea` reads its previous inputs REQUIREMENTS first; the bridge warns
+  when an acceptance-first KIT relies on changes to its locked tests; the orchestrator and the
+  extension wait for the gateway as long as a `/idea` or a KIT may run; `DECISIONS.md` with no open
+  decision is valid; `/eval --accept` releases a REQ also from a running `/autopilot`; an
+  out-of-range `clike.kit.agentEvalChecks` no longer breaks `/kit`; an agent's eval-sandbox run is
+  marked partial; docx, pdf, xlsx and pptx project documents reach the RAG, indexed in the background.
+- A REQ that extends an application already promoted no longer needs a copy of its launcher and
+  runtime manifest in the KIT: the canonical tree has them (repairs dropped the copy and a cycle went
+  to putting it back).
+- The regression of a promoted REQ runs the promoted version of its tests also in a project with no
+  commit yet or when one first commit recorded both copies: the modification times decide then, so a test a later REQ
+  reconciled and promoted no longer loses to the stale copy in the REQ's KIT (every later candidate
+  had to reconcile it again).
+- `/eval REQ --accept` releases the REQ from the autopilot's parked REQs: its files do not change, so
+  the next `/autopilot` kept it parked although the developer had resolved it.
+- The checks a local agent runs in the eval sandbox while it writes a KIT no longer take the
+  acceptance lock nor count as a verdict: the first eval did, and stopped the REQ as "changed after
+  the lock" when the agent improved its own tests afterwards. Only the bridge marks its runs; the
+  adoption baseline and the finalize verification are unchanged.
+- BMAD `/plan`: the architect (default role) writes the plan; the pm is now a companion-only role
+  that reads `PLAN.md` and `plan.json` and writes stories, story map and implementation readiness.
+  Before, both roles regenerated the plan and the second run discarded the first. `/plan --agent pm`
+  stops before any run when the plan is missing or older than the SPEC. Native `/plan` is unchanged.
+- Mandatory BMAD companion outputs are called mandatory in the instructions too (they said "when
+  useful", and the spec pm skipped them). Companion-only roles no longer receive the plan-sizing and
+  scenario block meant for the canonical documents.
+- The project RAG gets every Harper artifact a phase writes or reads: IDEA, TECH_CONSTRAINTS and the
+  inputs after /idea; SPEC, UX and BMAD spec companions after /spec; PLAN, lane guides and BMAD
+  architecture/plan companions after /plan; all of them after /extend; the finalize documents after
+  /finalize. Before, only the lane guides were indexed. Unchanged files are not re-embedded.
+
 ## [1.7.1] — 2026-11-09 — Proof that holds on the first repairs
 
 ### Fixed

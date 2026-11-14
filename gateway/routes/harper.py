@@ -96,7 +96,8 @@ _FINALIZE_FILE_HEADER_RE = re.compile(
 
 # --- Model parameters per phase (output budget & style) ----------------------
 PHASE_MODEL_PARAMS = {
-    "idea":                 {"max_tokens": 33500, "temperature": 0.2, "top_p": 1.0},
+    # IDEA.md and the six project inputs (docs/harper/inputs/): up to ~120k characters
+    "idea":                 {"max_tokens": 64000, "temperature": 0.2, "top_p": 1.0},
     "spec":                 {"max_tokens": 39500, "temperature": 0.2, "top_p": 1.0},
     "plan":                 {"max_tokens": 55000, "temperature": 0.2, "top_p": 0.8},  # raise to 6500 only if many lanes
     "kit":                  {"max_tokens": 48000, "temperature": 0.1, "top_p": 1.0},
@@ -714,7 +715,7 @@ def _methodology_file_header_allow_patterns(methodology_context: dict | None) ->
     }
     allowed_prefixes = allowed_prefixes_by_role.get((phase_name, agent_name), ())
     native_prefixes_by_phase = {
-        "idea": ("docs/harper/IDEA.md",),
+        "idea": ("docs/harper/IDEA.md", "docs/harper/inputs/"),
         "spec": ("docs/harper/SPEC.md",),
         "plan": ("docs/harper/PLAN.md", "docs/harper/plan.json", "docs/harper/lane-guides/"),
         "finalize": (
@@ -1196,6 +1197,9 @@ class HarperKitOptions(BaseModel):
     repair: Optional[Union[Dict[str, Any], bool]] = Field(default=None)
     # Code-only KIT after the acceptance stage (tests and LTC already locked).
     acceptance_first: Optional[bool] = Field(default=None)
+    # Local agent: run the KIT's checks in the eval sandbox before finishing (eval-check bridge).
+    eval_check: Optional[bool] = Field(default=None)
+    eval_check_max_runs: Optional[int] = Field(default=None, ge=1, le=20)
 
 class HarperRunRequest(BaseModel):
     project_id: Optional[str] = None
@@ -1355,9 +1359,13 @@ def _write_telemetry(project_id: str, record: dict) -> None:
     except Exception as e:
         log.warning("telemetry retention failed: %s", e)
 
+_TELEMETRY_EXECUTIONS = {"local_agent", "eval_sandbox"}
+
+
 class LocalAgentTelemetry(BaseModel):
-    """A Harper phase run by a local agent (Claude Code / Codex): no provider call went through the
-    gateway, so the orchestrator reports the run here for the telemetry portal."""
+    """A run no provider call of the gateway saw, reported by the orchestrator for the telemetry
+    portal: a Harper phase run by a local agent (Claude Code / Codex), or an eval / gate run in the
+    eval sandbox (execution `eval_sandbox`: no model, its time and outcome)."""
 
     project_id: str
     run_id: Optional[str] = None
@@ -1370,12 +1378,17 @@ class LocalAgentTelemetry(BaseModel):
     duration_ms: Optional[float] = None
     executor: Optional[str] = None
     req_id: Optional[str] = None
+    execution: Optional[str] = None
+    # an eval / gate run: status, scope, check counts, sandbox timings (scalars only)
+    outcome: Dict[str, Any] = Field(default_factory=dict)
 
 
 @router.post("/telemetry")
 def record_local_agent_telemetry(item: LocalAgentTelemetry) -> Dict[str, Any]:
     usage = {k: v for k, v in item.usage.items() if isinstance(v, (int, float)) and not isinstance(v, bool)}
     pricing = {k: v for k, v in item.pricing.items() if isinstance(v, (int, float, str)) and not isinstance(v, bool)}
+    outcome = {k: v for k, v in item.outcome.items() if isinstance(v, (int, float, str, bool)) or v is None}
+    execution = item.execution if item.execution in _TELEMETRY_EXECUTIONS else "local_agent"
     _write_telemetry(item.project_id, {
         "project_id": item.project_id,
         "run_id": item.run_id,
@@ -1387,8 +1400,9 @@ def record_local_agent_telemetry(item: LocalAgentTelemetry) -> Dict[str, Any]:
         "files_len": item.files_len,
         "duration_ms": item.duration_ms,
         "req_id": (item.req_id or "").strip() or None,
-        "execution": "local_agent",
+        "execution": execution,
         "executor": item.executor or item.provider,
+        **({"outcome": outcome} if outcome else {}),
         "timestamp": time.time(),
     })
     return {"ok": True}
@@ -2360,8 +2374,11 @@ async def run(req: HarperRunRequest,  request: Request):
     timeout_sec = min(900.0, 180.0 + (eff_max / 1000.0) * 9.0)
 
     # Give /plan and /finalize extra headroom because they emit long structured artifacts.
-    if phase in {"plan", "spec", "idea", "finalize"}:
+    if phase in {"plan", "spec", "finalize"}:
         timeout_sec = max(timeout_sec, 1000.0)
+    elif phase == "idea":
+        # IDEA.md and the six project inputs: a long output
+        timeout_sec = min(1800.0, max(1200.0, 180.0 + (eff_max / 1000.0) * 15.0))
     elif phase in {"kit", "acceptance"}:
         # a larger output budget and a deeper effort take longer: up to 30 minutes
         timeout_sec = min(1800.0, max(920.0, 180.0 + (eff_max / 1000.0) * 12.0))

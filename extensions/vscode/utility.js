@@ -1194,6 +1194,8 @@ async function persistReports(projectRootUri, phase, rep, out, fallbackReqId = '
       reason_code: rep.reason_code || undefined,
       tools: rep.tools && Object.keys(rep.tools).length ? rep.tools : undefined,
       missing_tools: Array.isArray(rep.missing_tools) && rep.missing_tools.length ? rep.missing_tools : undefined,
+      // where the eval spent its time (setup, own checks, regression per promoted REQ)
+      timings: rep.timings && typeof rep.timings === 'object' ? rep.timings : undefined,
       passed,
       failed,
       passed_count: rep.passed_count,
@@ -1440,6 +1442,15 @@ async function buildHarperBody(phase, payload, projectRootUri, out) {
     }
   } catch (err) {
     log('[CLike] saveTechConstraintsYaml failed:', err);
+  }
+  // A companion-only /plan role (BMAD pm) derives its documents from the approved plan: the cloud
+  // model sees only the prompt, so the plan goes with it.
+  if (phase === 'plan' && String(payload.methodology || '').toLowerCase() === 'bmad' && String(payload.agent || '').toLowerCase() === 'pm') {
+    const core = Array.isArray(payload["core"]) ? payload["core"] : [];
+    for (const name of ['PLAN.md', 'plan.json']) {
+      if (!core.some((n) => String(n).toLowerCase() === name.toLowerCase())) core.push(name);
+    }
+    payload["core"] = core;
   }
   //4) core blobs
   const core_blobs = await attachCoreBlobs(_docRoot, payload["core"] || []);
@@ -1886,10 +1897,20 @@ async function readWorkspaceFileBytes(pathInWs) {
 // of their raw bytes is skipped.
 const RAG_NON_TEXT_EXTENSIONS = new Set([
   'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'svg', 'tif', 'tiff', 'ico', 'heic', 'heif',
-  'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'odt', 'ods', 'odp', 'rtf',
+  'doc', 'ppt', 'odt', 'ods', 'odp', 'rtf',
   'zip', 'tar', 'gz', 'tgz', 'rar', '7z', 'exe', 'dll', 'so', 'dylib', 'bin', 'class', 'jar',
   'mp3', 'wav', 'flac', 'ogg', 'mp4', 'mov', 'avi', 'mkv', 'webm', 'psd', 'ai', 'sketch', 'fig',
 ]);
+
+// Documents the orchestrator converts to text when it indexes them (services/document_text.py):
+// their bytes go to the index, up to the size the context sources read.
+const RAG_CONVERTIBLE_EXTENSIONS = new Set(['pdf', 'docx', 'xlsx', 'xls', 'xlsb', 'pptx']);
+const RAG_CONVERTIBLE_MAX_BYTES = 10 * 1024 * 1024;
+
+function isRagConvertiblePath(p) {
+  const m = String(p || '').toLowerCase().match(/\.([a-z0-9]+)$/);
+  return !!(m && RAG_CONVERTIBLE_EXTENSIONS.has(m[1]));
+}
 
 function isRagIndexableTextPath(p) {
   const m = String(p || '').toLowerCase().match(/\.([a-z0-9]+)$/);
@@ -1918,6 +1939,14 @@ async function buildRagItemsForIndex(rag_files, out) {
     // the agent via attachment materialization / inline handling.
     if (!isRagIndexableTextPath(p)) {
       log(`[harperRAG] skip non-text attachment for RAG index: ${p}`);
+      continue;
+    }
+
+    // a document the orchestrator converts: its bytes, within the size limit
+    if (isRagConvertiblePath(p)) {
+      const bytes = typeof f.bytes_b64 === 'string' && f.bytes_b64 ? Buffer.from(f.bytes_b64, 'base64') : await readWorkspaceFileBytes(p);
+      if (bytes && bytes.length && bytes.length <= RAG_CONVERTIBLE_MAX_BYTES) items.push({ path: p, bytes_b64: bytes.toString('base64') });
+      else log(`[harperRAG] skip ${p}: ${bytes && bytes.length ? `larger than ${RAG_CONVERTIBLE_MAX_BYTES} bytes` : 'unreadable'}`);
       continue;
     }
 
@@ -3040,6 +3069,7 @@ module.exports = {
   runLocalAgentSync,
   terminateActiveAgents,
   runEvalGateCommand,
+  persistReports,
   saveKitCommand,
   saveGateCommand,
   saveEvalCommand,

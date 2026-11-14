@@ -128,7 +128,7 @@ services:
       # Native tools installed on the developer's confirmation (eval-tools), after the image's own on PATH.
       - CLIKE_EVAL_TOOLS_BIN=/opt/clike-tools/bin
       # Promoted REQs regressed at the same time (docker/.env; 1 = one after the other).
-      - CLIKE_EVAL_REGRESSION_WORKERS=${CLIKE_EVAL_REGRESSION_WORKERS:-2}
+      - CLIKE_EVAL_REGRESSION_WORKERS=${CLIKE_EVAL_REGRESSION_WORKERS:-auto}
     # Optional, git-ignored: variables the projects' tests need, e.g. a test database URL
     # (see eval.env.example). Names that look like credentials are refused at startup.
     env_file:

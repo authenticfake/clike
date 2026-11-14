@@ -91,6 +91,9 @@ async function persistTelemetryVSCode(wsroot, projectId, runId, phase, telemetry
     duration_ms: t.duration_ms ?? null,
     execution: t.execution || 'cloud',
     executor: t.executor || null,
+    ...(t.req_id ? { req_id: t.req_id } : {}),
+    // an eval / gate run in the eval sandbox (no model): status, scope, counts, timings
+    ...(t.outcome ? { outcome: t.outcome } : {}),
     meta: { client: 'vscode', source: 'extension' }
   });
   log( `persistTelemetryVSCode: appending ${line}`);
@@ -99,4 +102,29 @@ async function persistTelemetryVSCode(wsroot, projectId, runId, phase, telemetry
   log(`persistTelemetryVSCode: appended ${streamFile.fsPath}`);
 }
 
-module.exports = { persistTelemetryVSCode };
+/** The telemetry fields of an eval / gate run in the eval sandbox (the orchestrator sends the same to the portal). */
+function sandboxRunTelemetry(result, startedAt, scope) {
+  const r = result && typeof result === 'object' ? result : {};
+  const t = r.timings && typeof r.timings === 'object' ? r.timings : {};
+  const outcome = {
+    scope,
+    status: r.gate || r.status,
+    passed: r.passed_count,
+    failed: r.failed,
+    blocked: r.blocked_count,
+    warnings: r.warning_count,
+    regression: !!r.regression,
+    checks_s: t.checks_s,
+    regression_s: t.regression_s,
+    regression_workers: t.regression_workers,
+    reused: !!(r.reused_eval_at || r.reused_targeted_at),
+  };
+  return {
+    provider: 'eval_sandbox', executor: 'eval_sandbox', execution: 'eval_sandbox', model: null, usage: {},
+    duration_ms: Date.now() - startedAt,
+    req_id: r.req_id || null,
+    outcome: Object.fromEntries(Object.entries(outcome).filter(([, v]) => v !== undefined && v !== null)),
+  };
+}
+
+module.exports = { persistTelemetryVSCode, sandboxRunTelemetry };

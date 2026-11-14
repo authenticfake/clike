@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional
 import yaml
 
 from services.document_text import CONVERTIBLE_EXTENSIONS, extract_document_text
+from services.idea_inputs import INPUT_PATHS, INPUTS_DIR, MAX_TOTAL_CHARS as MAX_INPUTS_TOTAL_CHARS, READ_BY_LATER_PHASES
 
 log = logging.getLogger(__name__)
 
@@ -47,6 +48,11 @@ ROLE_GUIDANCE: Dict[str, str] = {
     "domain_glossary": "domain terms and their meaning; use them consistently",
     "example_output": "examples of expected outputs or reports; match their structure",
     "reference": "background material; use where relevant",
+    "project_inputs": "the structured project inputs /idea derived from the requirements sources: "
+    "requirements, edge cases, journeys, test scenarios and decisions with stable IDs; build on them and "
+    "keep their IDs in what you write (the raw sources follow when the budget allows)",
+    "previous_inputs": "your previous project inputs: keep every ID with its meaning, add new IDs after "
+    "the last one, mark removed ones withdrawn",
     PREVIOUS_RELEASE_ROLE: "requirements or background of an earlier release, already delivered: "
     "explains what the project is, never a new requirement",
     "existing_code": "code that already exists (this project or one to integrate with): follow its "
@@ -181,6 +187,13 @@ def resolve_context_sources(
     total = 0
     root = workspace_root.resolve()
     sources = list(manifest["sources"])
+    # The project inputs /idea writes (docs/harper/inputs/), whatever context.yaml declares: read
+    # first by /spec, /plan and /extend (the budget goes to them before the raw documents), and by
+    # /idea after its sources, as the previous version whose IDs stay stable.
+    sources = (
+        [{"path": p, "role": "project_inputs", "phases": ["spec", "plan"], "note": ""} for p in READ_BY_LATER_PHASES]
+        + sources
+    )
     if release_number(release):
         # the folders of the targeted release are its inputs, declared in context.yaml or not
         rel_name = f"v{release_number(release)}"
@@ -188,6 +201,11 @@ def resolve_context_sources(
             {"path": f"docs/inputs/{rel_name}/**", "role": "requirements", "phases": [phase_name], "note": ""},
             {"path": f"docs/reference/{rel_name}/**", "role": "reference", "phases": [phase_name], "note": ""},
         ]
+    # /extend: after the release's own requirements (the delta comes first); /idea: the previous
+    # version of what it writes, in its own budget (its raw sources keep theirs), REQUIREMENTS first
+    sources += [{"path": p, "role": "project_inputs", "phases": ["extend"], "note": ""} for p in READ_BY_LATER_PHASES]
+    sources += [{"path": p, "role": "previous_inputs", "phases": ["idea"], "note": ""} for p in (*INPUT_PATHS, f"{INPUTS_DIR}/*.md")]
+    own_budget = {"previous_inputs": MAX_INPUTS_TOTAL_CHARS}
     for source in sources:
         if not wanted.intersection(source["phases"]):
             continue
@@ -217,13 +235,17 @@ def resolve_context_sources(
             except OSError as exc:
                 item.update(kind="skipped", reason=f"unreadable: {exc.__class__.__name__}")
             text = item["text"]
-            budget = max(0, limits["max_total_chars"] - total)
+            role = source["role"]
+            budget = max(0, own_budget[role] if role in own_budget else limits["max_total_chars"] - total)
             cap = min(limits["max_file_chars"], budget)
             if len(text) > cap:
                 item["text"] = text[:cap]
                 item["truncated"] = True
             item["chars"] = len(item["text"])
-            total += item["chars"]
+            if role in own_budget:
+                own_budget[role] -= item["chars"]
+            else:
+                total += item["chars"]
             items.append(item)
     current = apply_releases(items, release)
     if items:

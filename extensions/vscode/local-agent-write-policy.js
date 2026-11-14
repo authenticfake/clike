@@ -7,15 +7,24 @@ const WRITE_REQUIRED_PHASES = new Set([
 
 // Early Harper document phases may write only their exact canonical Harper
 // outputs. Everything else under docs/harper/ stays forbidden.
+// idea: IDEA.md and the project inputs /idea derives from the sources (orchestrator services/idea_inputs.py)
 const DOCUMENT_PHASE_REQUIRED_OUTPUTS = {
-  idea: ['docs/harper/IDEA.md'],
+  idea: [
+    'docs/harper/IDEA.md',
+    'docs/harper/inputs/REQUIREMENTS.md',
+    'docs/harper/inputs/EDGE_CASES.md',
+    'docs/harper/inputs/JOURNEYS.md',
+    'docs/harper/inputs/TEST_SCENARIOS.md',
+    'docs/harper/inputs/DECISIONS.md',
+    'docs/harper/inputs/COVERAGE.md',
+  ],
   spec: ['docs/harper/SPEC.md'],
   plan: ['docs/harper/PLAN.md', 'docs/harper/plan.json'],
 };
 
 // Additional path prefixes a document phase is allowed to write.
 const DOCUMENT_PHASE_ALLOWED_PREFIXES = {
-  idea: [],
+  idea: ['docs/harper/inputs/'],
   spec: [],
   plan: ['docs/harper/lane-guides/'],
 };
@@ -429,19 +438,25 @@ function validateLocalAgentRequiredOutputs({
 function evaluateDocumentPhaseInputPreflight({
   phase,
   attachmentCount,
+  sourceFileCount,
   ideaPresent,
   specPresent,
+  methodology,
+  agent,
+  planPresent,
+  planOlderThanSpec,
 } = {}) {
   const p = normalizePhase(phase);
 
   if (p === 'idea') {
-    if (!(Number(attachmentCount) > 0)) {
+    // sources: the attachments of the run or the project's docs/inputs and docs/reference
+    if (!(Number(attachmentCount) > 0) && !(Number(sourceFileCount) > 0)) {
       return {
         ok: false,
         code: 'IDEA_REQUIRES_CURRENT_ATTACHMENT',
         message:
-          'Cannot run /idea without at least one attached source file. ' +
-          'Attach an IDEA/source document and retry.',
+          'Cannot run /idea without a source: attach a document or put the requirements in docs/inputs/ ' +
+          '(docs/reference/ for background) and retry.',
       };
     }
     return { ok: true };
@@ -467,6 +482,26 @@ function evaluateDocumentPhaseInputPreflight({
         code: 'PLAN_REQUIRES_SPEC',
         message:
           'Cannot run /plan because docs/harper/SPEC.md is missing. Run /spec first.',
+      };
+    }
+    // BMAD: the architect writes the plan; the pm only adds stories to it (companion-only role).
+    const bmadPm = String(methodology || '').toLowerCase() === 'bmad' && String(agent || '').toLowerCase() === 'pm';
+    if (bmadPm && !planPresent) {
+      return {
+        ok: false,
+        code: 'PLAN_PM_REQUIRES_ARCHITECT_PLAN',
+        message:
+          'Cannot run /plan --methodology bmad --agent pm because docs/harper/plan.json is missing. ' +
+          'The architect writes the plan: run /plan --methodology bmad (architect) first; the pm then adds stories to it.',
+      };
+    }
+    if (bmadPm && planOlderThanSpec) {
+      return {
+        ok: false,
+        code: 'PLAN_PM_REQUIRES_CURRENT_PLAN',
+        message:
+          'Cannot run /plan --methodology bmad --agent pm because docs/harper/plan.json is older than SPEC.md. ' +
+          'Run /plan --methodology bmad (architect) again on the current SPEC first; the pm then adds stories to it.',
       };
     }
     return { ok: true };

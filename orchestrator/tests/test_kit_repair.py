@@ -174,3 +174,46 @@ def test_a_repair_sure_a_locked_test_is_wrong_writes_the_correction_not_only_a_d
     assert "do not only describe the correction in a document" in rule
     assert "never in the tests of promoted REQs" in rule
     assert "saves your change as a patch" in rule
+
+
+def test_kit_and_repair_keep_promoted_tests_valid_for_the_reqs_that_follow():
+    # cdl-pipeline REQ-002: a REQ-001 test pinned the head migration to its own revision; the repair
+    # re-pinned it to REQ-002's, so every REQ adding a migration would fail the regression again.
+    from services.kit_repair import kit_self_check_rules
+
+    kit_rule = next(r for r in kit_self_check_rules("REQ-001") if "never a state the next REQs change" in r)
+    assert "the head the migration scripts declare (not a revision name)" in kit_rule
+    repair_rule = next(r for r in repair_rules("REQ-002") if "regression of a promoted REQ" in r)
+    assert "so it holds for the REQs that follow too" in repair_rule
+    assert "never pin this REQ's value in its place" in repair_rule
+
+
+def test_every_phase_text_rule_is_text_not_an_accidental_yaml_mapping():
+    # an unquoted ": " inside a rule makes YAML read it as a mapping: the model then gets "{'For …': …}"
+    import yaml
+
+    def walk(node, where):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                walk(value, f"{where}.{key}")
+        elif isinstance(node, list):
+            for i, item in enumerate(node):
+                assert not isinstance(item, dict) or len(item) != 1 or isinstance(next(iter(item.values())), (dict, list)), \
+                    f"{where}[{i}] is a one-key mapping (quote the rule): {str(item)[:120]}"
+                walk(item, f"{where}[{i}]")
+
+    for path in sorted((ORCHESTRATOR_ROOT / "phases").glob("*/text.yaml")):
+        walk(yaml.safe_load(path.read_text(encoding="utf-8")), path.parent.name)
+
+
+
+def test_the_orchestrator_waits_for_the_gateway_at_least_as_long_as_the_phase_runs(monkeypatch):
+    # TIMEOUT=720 in docker-compose cut a long /idea or KIT while the gateway kept running and billing
+    from services.harper import gateway_timeout_s
+
+    monkeypatch.setenv("TIMEOUT", "720")
+    assert gateway_timeout_s("idea") == 1860.0 and gateway_timeout_s("kit") == 1860.0
+    assert gateway_timeout_s("spec") == 1060.0
+    assert gateway_timeout_s("eval") == 720.0
+    monkeypatch.setenv("TIMEOUT", "3000")
+    assert gateway_timeout_s("idea") == 3000.0

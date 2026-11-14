@@ -2,7 +2,7 @@
   "name": "clike",
   "displayName": "Clike",
   "description": "From intent to impact. CLike keeps developers in flow, augments delivery with agentic workflows, and bakes in governance, eval‑driven quality, and a safe paved road for enterprises w/ an AI native pipeline.",
-  "version": "1.7.1",
+  "version": "1.8.0",
   "license": "Apache-2.0",
   "publisher": "authenticfake",
   "icon": "images/clike_64x64.png",
@@ -256,6 +256,13 @@
           "minimum": 0,
           "maximum": 20,
           "description": "Local agent repairs (Codex, Claude Code): how many times the agent may re-run failed checks in the real CLike eval sandbox during one repair (node .clike/bin/eval-check.mjs), to iterate until they pass (0 = off)."
+        },
+        "clike.kit.agentEvalChecks": {
+          "type": "number",
+          "default": 6,
+          "minimum": 0,
+          "maximum": 12,
+          "description": "Local agent KIT (Codex, Claude Code): how many times the agent may run its REQ's checks in the real CLike eval sandbox before it finishes (node .clike/bin/eval-check.mjs), so the first eval passes instead of starting a repair (0 = off: only repairs use the eval sandbox)."
         },
         "clike.stackDir": {
           "type": "string",

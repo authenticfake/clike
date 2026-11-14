@@ -66,7 +66,7 @@ def _bmad_contract_blocks(payload: dict, phase: str, text: str) -> str:
     """BMAD runs: the canned model obeys the active output contract and also emits every exact
     required path it did not write yet (the BMAD companions, the finalize documents)."""
     context = payload.get("methodology_context") or {}
-    if context.get("methodology") != "bmad":
+    if context.get("methodology") != "bmad" and phase != "idea":  # /idea always writes the project inputs
         return ""
     from utils.active_output_contract import build_active_output_contract
 
@@ -76,7 +76,10 @@ def _bmad_contract_blocks(payload: dict, phase: str, text: str) -> str:
         if "*" in path or "<" in path or f"BEGIN_FILE {path}\n" in text:
             continue
         title = path.rsplit("/", 1)[-1].rsplit(".", 1)[0].replace("_", " ").title()
-        blocks.append(_doc_block(path, f"# {title} — CoffeeBuddy\n\nOrders are stored in PostgreSQL 16 (schema `orders`)."))
+        body = f"# {title} — CoffeeBuddy\n\nOrders are stored in PostgreSQL 16 (schema `orders`)."
+        if path.startswith("docs/harper/inputs/"):
+            body += "\n\n| ID | Statement | Source |\n|---|---|---|\n" + "| FR-ORD-01 | An order has an item and a size. | IDEA.md § Vision |\n" * 3
+        blocks.append(_doc_block(path, body))
     return "".join(blocks)
 
 

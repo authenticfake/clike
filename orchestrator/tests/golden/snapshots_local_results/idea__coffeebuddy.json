@@ -17,6 +17,42 @@
         "encoding": "utf-8",
         "mime": null,
         "path": "docs/harper/IDEA.md"
+      },
+      {
+        "content": "# Inputs\n\n## Changes\nFirst version\n\n| ID | Situation | Expected | Req |\n|---|---|---|---|\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n",
+        "encoding": "utf-8",
+        "mime": null,
+        "path": "docs/harper/inputs/REQUIREMENTS.md"
+      },
+      {
+        "content": "# Inputs\n\n## Changes\nFirst version\n\n| ID | Situation | Expected | Req |\n|---|---|---|---|\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n",
+        "encoding": "utf-8",
+        "mime": null,
+        "path": "docs/harper/inputs/EDGE_CASES.md"
+      },
+      {
+        "content": "# Inputs\n\n## Changes\nFirst version\n\n| ID | Situation | Expected | Req |\n|---|---|---|---|\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n",
+        "encoding": "utf-8",
+        "mime": null,
+        "path": "docs/harper/inputs/JOURNEYS.md"
+      },
+      {
+        "content": "# Inputs\n\n## Changes\nFirst version\n\n| ID | Situation | Expected | Req |\n|---|---|---|---|\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n",
+        "encoding": "utf-8",
+        "mime": null,
+        "path": "docs/harper/inputs/TEST_SCENARIOS.md"
+      },
+      {
+        "content": "# Inputs\n\n## Changes\nFirst version\n\n| ID | Situation | Expected | Req |\n|---|---|---|---|\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n",
+        "encoding": "utf-8",
+        "mime": null,
+        "path": "docs/harper/inputs/DECISIONS.md"
+      },
+      {
+        "content": "# Inputs\n\n## Changes\nFirst version\n\n| ID | Situation | Expected | Req |\n|---|---|---|---|\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n",
+        "encoding": "utf-8",
+        "mime": null,
+        "path": "docs/harper/inputs/COVERAGE.md"
       }
     ],
     "ok": false,
@@ -36,7 +72,8 @@
   },
   "request": {
     "allowed_write_roots": [
-      "docs/harper/IDEA.md"
+      "docs/harper/IDEA.md",
+      "docs/harper/inputs/"
     ],
     "available_capabilities": null,
     "capability_metadata": null,
@@ -47,6 +84,30 @@
       {
         "content": "# IDEA — CoffeeBuddy\n\n## Vision\nCoffeeBuddy streamlines office coffee runs entirely within the corporate network: teammates submit orders via Slack, one teammate is fairly assigned as runner, reminders are sent, and preferences are remembered—without relying on public cloud.\n\n## Problem Statement\nTeams coordinate coffee orders in ad-hoc Slack threads. Messages get buried, someone forgets to pick up, and no one remembers preferences. In regulated environments, external cloud services are restricted, so the solution must run fully on-prem.\n\n## Target Users & Context\n- Primary: office teammates placing and picking up coffee orders.\n- Secondary: office managers seeking fairness and reduced coordination time.\n- Context: Enterprise Slack workspace; on-prem Kubernetes; internal identity and gateways only.\n\n## Value & Outcomes\n- Reduce coordination time to under 2 minutes per run.\n- Fewer mistakes with consistent order summaries.\n- Transparent, fair runner assignment across the team.\n\n## Out of Scope\nPayments, delivery logistics, vendor integrations beyond Slack workflows.\n\n## Technology Constraints\n```yaml\ntech_constraints:\n  version: 1.0.0\n  profiles:\n    - name: onprem\n      runtime: python\n      platform: kubernetes\n      ingress: nginx\n      api:\n        - slack.events\n        - rest\n      storage:\n        - postgres\n      messaging:\n        - kafka\n      auth:\n        - oidc\n      observability:\n        - prometheus\n        - grafana\n  capabilities:\n    - type: api.gateway\n      vendor: Kong Gateway\n      params:\n        routes: internal-only\n    - type: idp\n      vendor: Ory Hydra, Ory Kratos\n      params:\n        oidc: true\n    - type: db.relational\n      vendor: postgres\n      params:\n        ha: true\n    - type: mq.stream\n      vendor: apache.kafka\n      params:\n        partitions: 3\n    - type: secrets.manager\n      vendor: hashicorp.vault\n      params: {}\n    - type: ci.ci\n      vendor: jenkins\n      params: {}\n```\n## Risks & Assumptions\n\nAssumption: Slack enterprise is allowed internally; incoming events proxied via on-prem gateway.\n\nRisk: Slack rate limits; mitigated via Kafka buffering and backoff.\n\n## Success Metrics (early)\n\nWeekly active coffee runs per active user.\n\nTime from first /coffee to order confirmation.\n\n## Sources & Inspiration\n\nSlack platform patterns (internal reference).\n\nExisting enterprise standards for Kubernetes, Ory Hydra & Ory Kratos, Kong Gateway, hashicorp as Vault, and Kafka.",
         "path": "docs/harper/IDEA.md"
+      },
+      {
+        "content": "# Inputs\n\n## Changes\nFirst version\n\n| ID | Situation | Expected | Req |\n|---|---|---|---|\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n",
+        "path": "docs/harper/inputs/REQUIREMENTS.md"
+      },
+      {
+        "content": "# Inputs\n\n## Changes\nFirst version\n\n| ID | Situation | Expected | Req |\n|---|---|---|---|\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n",
+        "path": "docs/harper/inputs/EDGE_CASES.md"
+      },
+      {
+        "content": "# Inputs\n\n## Changes\nFirst version\n\n| ID | Situation | Expected | Req |\n|---|---|---|---|\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n",
+        "path": "docs/harper/inputs/JOURNEYS.md"
+      },
+      {
+        "content": "# Inputs\n\n## Changes\nFirst version\n\n| ID | Situation | Expected | Req |\n|---|---|---|---|\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n",
+        "path": "docs/harper/inputs/TEST_SCENARIOS.md"
+      },
+      {
+        "content": "# Inputs\n\n## Changes\nFirst version\n\n| ID | Situation | Expected | Req |\n|---|---|---|---|\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n",
+        "path": "docs/harper/inputs/DECISIONS.md"
+      },
+      {
+        "content": "# Inputs\n\n## Changes\nFirst version\n\n| ID | Situation | Expected | Req |\n|---|---|---|---|\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n",
+        "path": "docs/harper/inputs/COVERAGE.md"
       }
     ],
     "forbidden_paths": [

@@ -102,7 +102,7 @@ def _scenarios():
     ]
     extend_doc = "docs/harper/EXTEND_2026-10-04_REQ-003_REQ-003.md"
     return [
-        ("idea__valid", _request("idea", "idea__local__native", [_f("docs/harper/IDEA.md", doc_fx.VALID_IDEA)])),
+        ("idea__valid", _request("idea", "idea__local__native", [_f("docs/harper/IDEA.md", doc_fx.VALID_IDEA), *doc_fx._inputs()])),
         ("spec__valid", _request("spec", "spec__local__native", [_f("docs/harper/SPEC.md", doc_fx.VALID_SPEC)])),
         ("plan__valid", _request("plan", "plan__local__native", [
             _f("docs/harper/PLAN.md", doc_fx.VALID_PLAN_MD), _f("docs/harper/plan.json", doc_fx.VALID_PLAN_JSON),
@@ -110,9 +110,9 @@ def _scenarios():
         ("extend__valid", _request("extend", "extend__local__native", [
             _f("docs/harper/PLAN.md", extend_fx.VALID_PLAN_MD), _f("docs/harper/plan.json", extend_fx.VALID_PLAN_JSON),
             _f("docs/harper/EXTEND_2026-10-04_REQ-2_REQ-2.md", extend_fx.AUDIT)])),
-        ("idea__coffeebuddy", _request("idea", "idea__local__native", [_f("docs/harper/IDEA.md", idea)])),
+        ("idea__coffeebuddy", _request("idea", "idea__local__native", [_f("docs/harper/IDEA.md", idea), *doc_fx._inputs()])),
         ("idea__no_output", _request("idea", "idea__local__native", [])),
-        ("idea__forbidden_write", _request("idea", "idea__local__native", [_f("docs/harper/IDEA.md", idea), _f("src/app.py", "print('x')\n")])),
+        ("idea__forbidden_write", _request("idea", "idea__local__native", [_f("docs/harper/IDEA.md", idea), *doc_fx._inputs(), _f("src/app.py", "print('x')\n")])),
         ("spec__coffeebuddy", _request("spec", "spec__local__native", [_f("docs/harper/SPEC.md", spec)])),
         ("spec__too_thin", _request("spec", "spec__local__native", [_f("docs/harper/SPEC.md", "# SPEC\n\nTBD\n")])),
         ("plan__no_checkpoints", _request("plan", "plan__local__native", [

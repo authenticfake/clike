@@ -39,7 +39,8 @@ runs the image just built. The orchestrator and the eval sandbox share one image
 contents, so it only slows the build and fills the VM disk (`podman system df`).
 
 The regression of promoted REQs runs `CLIKE_EVAL_REGRESSION_WORKERS` of them at a time (docker/.env,
-default `2`, `1` = one after the other, at most 8): each has its own work dir, venv, test databases and
+default `auto`: about 2 GB and 2 CPUs of the sandbox each, at most 4; or a number, `1` = one after the other,
+at most 8): each has its own work dir, venv, test databases and
 service ports, and the report keeps the plan order. More workers need more sandbox memory.
 
 The eval sandbox runs generated tests and is capped by `CLIKE_EVAL_SANDBOX_MEM_LIMIT` (docker/.env,
@@ -188,7 +189,7 @@ How to propose a change is described in [CONTRIBUTING.md](../CONTRIBUTING.md).
 ## Versioning
 
 Extension and services share one version (`package.json`, both `pyproject.toml`).
-Milestones are tagged (`v0.9.0` = M1, `v0.9.5` = M2, `v1.0.0` = M3, then `v1.1.0`, `v1.2.0`, `v1.2.1`, `v1.2.2`, `v1.2.3`, `v1.2.4`, `v1.3.0`, `v1.4.0` … `v1.4.4`, `v1.5.0`, `v1.5.1`, `v1.6.0`, `v1.6.1`, `v1.6.2`, `v1.6.3`, `v1.6.4`, `v1.6.5`, `v1.6.6`, `v1.6.7`, `v1.6.8`, `v1.6.9`, `v1.7.0`, `v1.7.1`); semantic versioning from `1.0.0`. Changes are recorded in
+Milestones are tagged (`v0.9.0` = M1, `v0.9.5` = M2, `v1.0.0` = M3, then `v1.1.0`, `v1.2.0`, `v1.2.1`, `v1.2.2`, `v1.2.3`, `v1.2.4`, `v1.3.0`, `v1.4.0` … `v1.4.4`, `v1.5.0`, `v1.5.1`, `v1.6.0`, `v1.6.1`, `v1.6.2`, `v1.6.3`, `v1.6.4`, `v1.6.5`, `v1.6.6`, `v1.6.7`, `v1.6.8`, `v1.6.9`, `v1.7.0`, `v1.7.1`, `v1.8.0`); semantic versioning from `1.0.0`. Changes are recorded in
 [CHANGELOG.md](../CHANGELOG.md).
 
 Every version that changes (a new `package.json` / `pyproject.toml` version, minor or patch) is

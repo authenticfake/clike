@@ -106,6 +106,85 @@ test('agent timeout: extended by the eval checks it may wait for', () => {
   assert.equal(agentTimeoutMinutes(30, null), 30);
   assert.equal(agentTimeoutMinutes(30, { max_runs: 8 }), 78);
   assert.equal(agentTimeoutMinutes(1800 / 60, { max_runs: 0 }), 30);
+  // a KIT with promoted REQs: the regression CLike adds and the 2 runs kept for it
+  assert.equal(agentTimeoutMinutes(30, { max_runs: 6, regression: ['REQ-001'] }), 30 + 9 * 6);
+});
+
+// a sandbox where the KIT's checks fail `failFor` runs, then pass; regression::REQ-002 fails until fixed
+function kitSandbox({ failFor = 0, regressionFailsUntil = Infinity } = {}) {
+  const asked = [];
+  return {
+    asked,
+    runChecks: async (checks) => {
+      asked.push(checks);
+      const n = asked.length;
+      if (checks.length && checks.every((c) => c.startsWith('regression::'))) {
+        return { cases: [{ name: 'regression::REQ-002::unit', passed: n >= regressionFailsUntil, code: 1, excerpt: 'DeprecationWarning as error' }] };
+      }
+      const own = { name: 'unit', passed: n > failFor, code: 1, excerpt: 'own failure' };
+      const reg = checks.filter((c) => c.startsWith('regression::'))
+        .map(() => ({ name: 'regression::REQ-002::unit', passed: n >= regressionFailsUntil, code: 1, excerpt: 'DeprecationWarning as error' }));
+      return { cases: [own, ...reg] };
+    },
+  };
+}
+
+test('KIT: once its checks first pass the regression of the promoted REQs runs in the same run, once', async () => {
+  // cdl-pipeline REQ-010: the agent never ran the regression; the eval found REQ-002 broken by a new dependency
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'clike-evalcheck-'));
+  const box = kitSandbox({ failFor: 1 });
+  const bridge = startEvalCheckBridge({ workspaceRoot: root, pollMs: 20, maxRuns: 6, runChecks: box.runChecks, regression: ['REQ-001', 'REQ-002'] });
+  try {
+    assert.match((await runHelper(root, [])).stdout, /FAIL unit/);  // failing: no regression yet
+    const pass = await runHelper(root, []);
+    assert.equal(pass.code, 1);
+    assert.match(pass.stdout, /PASS unit/);
+    assert.match(pass.stdout, /FAIL regression::REQ-002::unit[\s\S]*DeprecationWarning/);
+    assert.match(pass.stdout, /NOTE: Your checks pass, so CLike also ran the regression[\s\S]*regression::REQ-001 regression::REQ-002/);
+    assert.match(pass.stdout, /Result: FAIL/);
+    assert.deepEqual(box.asked, [[], [], ['regression::REQ-001', 'regression::REQ-002']]);
+    await runHelper(root, ['unit']);  // passes again: the regression is not repeated by CLike
+    assert.equal(box.asked.length, 4);
+    assert.equal(bridge.runs, 3);
+  } finally {
+    bridge.stop();
+  }
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('KIT: after the limit two runs are kept for the regression, which is added when the request lacks it', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'clike-evalcheck-'));
+  const box = kitSandbox({ failFor: 2, regressionFailsUntil: 4 });
+  const bridge = startEvalCheckBridge({ workspaceRoot: root, pollMs: 20, maxRuns: 2, runChecks: box.runChecks, regression: ['REQ-002'] });
+  try {
+    await runHelper(root, []);
+    await runHelper(root, []);  // the limit spent on its own checks, the regression never ran
+    const kept = await runHelper(root, ['unit']);
+    assert.deepEqual(box.asked[2], ['unit', 'regression::REQ-002']);
+    assert.match(kept.stdout, /FAIL regression::REQ-002::unit/);
+    assert.match(kept.stdout, /one of the 2 CLike keeps for the regression after the limit \(1 left\)/);
+    const confirm = await runHelper(root, ['regression::REQ-002']);
+    assert.match(confirm.stdout, /Result: PASS/);
+    assert.match((await runHelper(root, [])).stdout, /LIMIT/);
+    assert.equal(box.asked.length, 4);
+  } finally {
+    bridge.stop();
+  }
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('no promoted REQs (a repair, the first REQ): the limit is the limit, no regression added', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'clike-evalcheck-'));
+  const box = kitSandbox();
+  const bridge = startEvalCheckBridge({ workspaceRoot: root, pollMs: 20, maxRuns: 1, runChecks: box.runChecks });
+  try {
+    assert.match((await runHelper(root, [])).stdout, /Result: PASS/);
+    assert.match((await runHelper(root, [])).stdout, /LIMIT/);
+    assert.deepEqual(box.asked, [[]]);
+  } finally {
+    bridge.stop();
+  }
+  fs.rmSync(root, { recursive: true, force: true });
 });
 
 test('eval-check shows a regressed REQ\'s failures, not its passing setup steps', () => {

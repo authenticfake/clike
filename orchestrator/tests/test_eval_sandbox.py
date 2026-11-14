@@ -112,7 +112,9 @@ class EvalSandboxTests(unittest.TestCase):
             client = TestClient(app, base_url="http://127.0.0.1:8080")
             params = {"profile": f"runs/kit/{REQ}/ci/LTC.json", "project_root": str(self.proj), "req_id": REQ}
             auth = {"Authorization": f"Bearer {TOKEN}"}
-            with patch.object(routes_eval.httpx.AsyncClient, "post", new=fake_post):
+            # the eval / gate telemetry goes to the gateway, not to the sandbox (test_eval_telemetry.py)
+            with patch.object(routes_eval.httpx.AsyncClient, "post", new=fake_post), \
+                    patch.object(routes_eval.eval_telemetry, "record"):
                 ev = client.post("/v1/eval/run", params=params, headers=auth)
                 # nothing changed since the passing eval: the gate reuses its verdict
                 reused = client.post("/v1/gate/check", params=params, headers=auth)

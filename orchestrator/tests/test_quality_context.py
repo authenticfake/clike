@@ -127,6 +127,19 @@ class PhaseBlockTests(unittest.TestCase):
     def test_kit_without_scenarios_or_epic_adds_nothing(self):
         self.assertEqual(self._kit({"id": "REQ-009"})["text"], "")
 
+    def test_companion_only_roles_get_no_quality_block(self):
+        for phase, agent in (("spec", "ux"), ("plan", "pm")):
+            role = {"methodology": "bmad", "agent": agent, "artifact_policy": {"companion_only": True}}
+            q = build_quality_context(phase=phase, payload={}, execution_mode="cloud", req_id=None,
+                                      workspace_root=TEMPLATE, methodology_context=role)
+            self.assertEqual(q["text"], "", (phase, agent))
+
+    def test_canonical_roles_keep_the_quality_block(self):
+        for role in (None, {"methodology": "bmad", "agent": "architect", "artifact_policy": {"companion_only": False}}):
+            q = build_quality_context(phase="plan", payload={}, execution_mode="cloud", req_id=None,
+                                      workspace_root=TEMPLATE, methodology_context=role)
+            self.assertIn("capacity profile", q["text"].lower())
+
 
 class ParityTests(unittest.TestCase):
     """The same quality text reaches the cloud prompt and the local agent package."""

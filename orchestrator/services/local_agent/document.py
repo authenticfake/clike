@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from services.capabilities import (
     build_capability_metadata_map,
 )
+from services.idea_inputs import INPUT_PATHS, REQUIRE_IDS, idea_inputs_section
 from services.phase_definitions import phase_definition, shared_definitions
 from services.methodologies.active_output_contract import build_active_output_contract
 from services.methodologies.resolver import bmad_artifact_policy
@@ -216,10 +217,12 @@ def build_document_phase_local_agent_package(
         methodology_context=methodology_context,
     )
 
-    # A BMAD agent never writes its forbidden canonical docs (spec/ux: no SPEC.md).
+    # A BMAD agent never writes its forbidden canonical docs (spec/ux: no SPEC.md; plan/pm: no
+    # PLAN.md, plan.json, lane guides). A root is forbidden as a file or as a folder (`dir/**`).
     allowed_write_roots = [
         root for root in spec["allowed_write_roots"]
         if not _glob_matches(root, active_output_contract.get("forbidden_output_globs"))
+        and not _glob_matches(f"{str(root).rstrip('/')}/*", active_output_contract.get("forbidden_output_globs"))
     ]
     # BMAD companion roots of the agent (docs/harper/bmad/<phase>/, docs/harper/ux/).
     for glob in active_output_contract.get("allowed_optional_output_globs") or []:
@@ -228,7 +231,7 @@ def build_document_phase_local_agent_package(
             allowed_write_roots.append(root)
     forbidden_paths = list(_DOCUMENT_PHASE_FORBIDDEN_PATHS)
     title = spec["title"]
-    # Companion-only role (BMAD spec/ux): the canonical document is input, not output — the
+    # Companion-only role (BMAD spec/ux, plan/pm): the canonical document is input, not output — the
     # regenerative mission of the phase ("regenerate SPEC.md, do not read it") does not apply.
     companion_only = bool(active_output_contract.get("forbidden_output_globs")) and all(
         _glob_matches(out, active_output_contract.get("forbidden_output_globs"))
@@ -236,13 +239,14 @@ def build_document_phase_local_agent_package(
     )
     attachment_manifest, attachment_package_files = _materialize_attachments(payload, phase_norm)
 
-    # /idea source-of-truth is current-run attachments only. Fail safely if the
-    # builder is called directly without attachments (the VS Code extension also
-    # blocks this earlier, before any orchestrator call).
-    if phase_norm == "idea" and not attachment_manifest["present"]:
+    # /idea sources: the current-run attachments and the project context sources (docs/inputs,
+    # docs/reference). Fail safely when there is neither (the extension blocks this earlier).
+    context_items = ((payload.get("context_sources") or {}).get("items") or []) if isinstance(payload.get("context_sources"), dict) else []
+    has_context_sources = any(item.get("kind") in {"text", "converted", "image"} for item in context_items if isinstance(item, dict))
+    if phase_norm == "idea" and not attachment_manifest["present"] and not has_context_sources:
         raise ValueError(
-            "Cannot run /idea without at least one attached source file. "
-            "Attach an IDEA/source document and retry."
+            "Cannot run /idea without a source: attach a document or put the requirements in docs/inputs/ "
+            "(docs/reference/ for background) and retry."
         )
 
     # /plan must populate per-REQ packs/skills/design_profiles from the CLike
@@ -266,7 +270,7 @@ def build_document_phase_local_agent_package(
     if companion_only:
         # the canonical documents are this role's input
         required_reads = required_reads + [
-            f"docs/harper/{name} (canonical, read-only)" for name in ("IDEA.md", "SPEC.md", "PLAN.md")
+            f"docs/harper/{name} (canonical, read-only)" for name in ("IDEA.md", "SPEC.md", "PLAN.md", "plan.json")
             if f"docs/harper/{name}" not in " ".join(required_reads)
         ]
 
@@ -360,6 +364,8 @@ def build_document_phase_local_agent_package(
             *([] if companion_only else _render_canonical_parity_block(phase_norm, title)),
             "",
             *(_text("document_package.companion_only_lines") if companion_only else spec["prompt_lines"]),
+            # the project inputs /idea writes next to IDEA.md (same rules as the cloud prompt)
+            *(["", idea_inputs_section()] if phase_norm == "idea" and not companion_only else []),
             *_text("document_package.lines"),
         ]
     )
@@ -474,6 +480,16 @@ def _validate_document_phase_completeness(
         if not re.search(r"^```ya?ml\s*$", content, re.IGNORECASE | re.MULTILINE):
             incomplete = True
             warnings.append("idea:missing_fenced_yaml_under_technology_constraints")
+        # the project inputs: present, with IDs (an empty or ID-less catalogue is no input for /spec)
+        for path in INPUT_PATHS:
+            text = content_by_path.get(path, "") or ""
+            name = path.rsplit("/", 1)[-1]
+            if len(text.strip()) < 200:
+                incomplete = True
+                warnings.append(f"idea:inputs_missing_or_empty:{name}")
+            elif path in REQUIRE_IDS and not re.search(r"\b(?:FR|NFR|EC|E2E|TS|D)-(?:[A-Z]{2,4}-)?\d+\b", text):
+                incomplete = True
+                warnings.append(f"idea:inputs_without_ids:{name}")
 
     elif phase == "spec":
         content = content_by_path.get("docs/harper/SPEC.md", "") or ""

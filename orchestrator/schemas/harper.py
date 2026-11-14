@@ -41,6 +41,9 @@ class HarperKitOptions(BaseModel):
     repair: Optional[Union[bool, Dict[str, Any]]] = Field(default=None)
     # Code-only KIT after the acceptance stage (kit.phases=["acceptance"]): tests/LTC are locked.
     acceptance_first: Optional[bool] = Field(default=None)
+    # Local agent: run the KIT's checks in the eval sandbox before finishing (eval-check bridge).
+    eval_check: Optional[bool] = Field(default=None)
+    eval_check_max_runs: Optional[int] = Field(default=None, ge=1, le=20)
     batch: Optional[int] = Field(default=None, ge=1)
     req_ids: Optional[List[str]] = Field(default=None)  # backward-compat alias
     rescope: Optional[bool] = Field(default=False)

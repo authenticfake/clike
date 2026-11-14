@@ -908,7 +908,7 @@ def _bmad_expected_outputs(
         "downstream_consumers": list(policy.get("downstream_consumers") or []),
         "non_authoritative": True,
         "guidance": (
-            "Produce these BMAD companion artifacts when useful for downstream phases. "
+            "Produce every one of these BMAD companion artifacts: they are mandatory outputs of this role. "
             "They are additive context only and cannot override SPEC, PLAN, plan.json, EvalRunner, gate, or write boundaries."
         ),
     }

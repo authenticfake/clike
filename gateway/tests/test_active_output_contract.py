@@ -78,11 +78,21 @@ def _kit_file_requirements(req_id: str = "REQ-001"):
     }
 
 
-def test_native_idea_cloud_contract_requires_only_idea():
+INPUTS = [
+    "docs/harper/inputs/REQUIREMENTS.md",
+    "docs/harper/inputs/EDGE_CASES.md",
+    "docs/harper/inputs/JOURNEYS.md",
+    "docs/harper/inputs/TEST_SCENARIOS.md",
+    "docs/harper/inputs/DECISIONS.md",
+    "docs/harper/inputs/COVERAGE.md",
+]
+
+
+def test_native_idea_cloud_contract_requires_idea_and_the_project_inputs():
     contract = build_active_output_contract(phase="idea", runner="cloud")
 
     assert contract["methodology"] == "native_clike"
-    assert contract["required_outputs"] == ["docs/harper/IDEA.md"]
+    assert contract["required_outputs"] == ["docs/harper/IDEA.md", *INPUTS]
     assert "docs/harper/bmad/idea/BRIEF.md" not in contract["required_outputs"]
 
 
@@ -133,11 +143,12 @@ def test_bmad_plan_architect_cloud_contract_includes_plan_json_lane_guides_and_a
 
 
 def test_bmad_plan_pm_cloud_contract_includes_story_companions():
+    # the architect writes the plan; the pm is companion-only (stories derived from it)
     contract = _bmad_contract("plan", "pm")
 
-    assert "docs/harper/PLAN.md" in contract["required_outputs"]
-    assert "docs/harper/plan.json" in contract["required_outputs"]
-    assert "docs/harper/lane-guides/**" in contract["required_outputs"]
+    assert "docs/harper/PLAN.md" not in contract["required_outputs"]
+    assert "docs/harper/plan.json" not in contract["required_outputs"]
+    assert "docs/harper/lane-guides/**" not in contract["required_outputs"]
     assert "docs/harper/bmad/plan/STORIES.md" in contract["required_outputs"]
     assert "docs/harper/bmad/plan/STORY_MAP.md" in contract["required_outputs"]
     assert "docs/harper/bmad/plan/IMPLEMENTATION_READINESS.md" in contract["required_outputs"]
@@ -182,9 +193,6 @@ def test_bmad_plan_pm_contract_allows_plan_companions():
     contract = _bmad_contract("plan", "pm")
     result = validate_files_against_active_output_contract(
         [
-            {"path": "docs/harper/PLAN.md", "content": "# Plan"},
-            {"path": "docs/harper/plan.json", "content": "{}"},
-            {"path": "docs/harper/lane-guides/python.md", "content": "# Python"},
             {"path": "docs/harper/bmad/plan/STORIES.md", "content": "# Stories"},
             {"path": "docs/harper/bmad/plan/STORY_MAP.md", "content": "# Story Map"},
             {"path": "docs/harper/bmad/plan/IMPLEMENTATION_READINESS.md", "content": "# Readiness"},
@@ -194,6 +202,23 @@ def test_bmad_plan_pm_contract_allows_plan_companions():
 
     assert result["ok"] is True
     assert result["disallowed_outputs"] == []
+
+
+def test_bmad_plan_pm_contract_rejects_writing_the_architect_plan():
+    contract = _bmad_contract("plan", "pm")
+    result = validate_files_against_active_output_contract(
+        [
+            {"path": "docs/harper/PLAN.md", "content": "# Plan"},
+            {"path": "docs/harper/plan.json", "content": "{}"},
+            {"path": "docs/harper/bmad/plan/STORIES.md", "content": "# Stories"},
+            {"path": "docs/harper/bmad/plan/STORY_MAP.md", "content": "# Story Map"},
+            {"path": "docs/harper/bmad/plan/IMPLEMENTATION_READINESS.md", "content": "# Readiness"},
+        ],
+        contract,
+    )
+
+    assert result["ok"] is False
+    assert {"docs/harper/PLAN.md", "docs/harper/plan.json"} <= set(result["disallowed_outputs"])
 
 
 def test_bmad_kit_developer_cloud_contract_replaces_req_id():

@@ -310,6 +310,34 @@ class EvalRegressionTests(_RegressionProject):
         (kit / "src" / "other_cli" / "__main__.py").write_text("print('run')\n")
         self.assertEqual(_required_output_blockers(self.proj, "REQ-003"), [])
 
+    def test_a_req_extending_a_promoted_application_needs_no_copy_of_its_launcher_or_manifest(self):
+        # cdl-pipeline REQ-005/006: the launcher and pyproject were in the canonical tree; the KIT had
+        # copies, a repair dropped them and a cycle went to putting them back
+        from routes.routes_eval import _required_output_blockers
+
+        kit = self.proj / "runs" / "kit" / "REQ-003"
+        requirements = {"required_outputs": [
+            {"role": "module_launcher", "required": True},
+            {"role": "execution_area_runtime_manifest", "required": True},
+        ]}
+        (kit / "ci" / "FILE_REQUIREMENTS.json").write_text(json.dumps(requirements))
+        self.assertEqual(sorted(b["role"] for b in _required_output_blockers(self.proj, "REQ-003")),
+                         ["execution_area_runtime_manifest", "module_launcher"])
+        # never another REQ's KIT, installed dependencies or caches
+        (self.proj / "runs" / "kit" / "REQ-009" / "src").mkdir(parents=True)
+        (self.proj / "runs" / "kit" / "REQ-009" / "src" / "pyproject.toml").write_text("[project]\n")
+        (self.proj / "node_modules" / "x").mkdir(parents=True)
+        (self.proj / "node_modules" / "x" / "package.json").write_text("{}")
+        (self.proj / "src" / "frontend" / "node_modules" / "x").mkdir(parents=True)
+        (self.proj / "src" / "frontend" / "node_modules" / "x" / "index.js").write_text("module.exports = 1\n")
+        (self.proj / "src" / "frontend" / "node_modules" / "x" / "package.json").write_text("{}")
+        self.assertEqual(sorted(b["role"] for b in _required_output_blockers(self.proj, "REQ-003")),
+                         ["execution_area_runtime_manifest", "module_launcher"])
+        (self.proj / "src" / "app").mkdir(parents=True, exist_ok=True)
+        (self.proj / "src" / "app" / "__main__.py").write_text("print('run')\n")
+        (self.proj / "src" / "pyproject.toml").write_text("[project]\nname = 'app'\n")
+        self.assertEqual(_required_output_blockers(self.proj, "REQ-003"), [])
+
     def test_application_factory_is_a_launcher_and_eval_reports_missing_ones(self):
         kit = self.proj / "runs" / "kit" / "REQ-003"
         requirements = {"required_outputs": [{"role": "module_launcher", "required": True}]}
@@ -441,6 +469,37 @@ class PromotedKitCompositionTests(_RegressionProject):
         work = self.proj / "runs" / "eval" / "REQ-002" / "regression" / "REQ-001" / "work" / "REQ-001" / "test"
         self.assertEqual((work / "conftest.py").read_text(), "REQ001 = 1\n")
         self.assertEqual((work / "test_pricing.py").read_text(), "from pricing import price\nassert price() == 12\n")
+
+    def test_without_commits_the_promoted_version_of_a_reconciled_test_wins_by_modification_time(self):
+        # cdl-pipeline: a project with no commit yet; REQ-003 reconciled REQ-001's migration test and
+        # promoted it, and every later regression still ran the copy in REQ-001's KIT
+        self._promoted("REQ-001", "REQ-004")
+        (self.proj / "src" / "pricing.py").write_text("def price():\n    return 12\n\ndef discount():\n    return 1\n")
+        (self.proj / "test").mkdir(exist_ok=True)
+        promoted = self.proj / "test" / "test_pricing.py"
+        promoted.write_text("from pricing import price\nassert price() == 12\n")
+        stale = self.proj / "runs" / "kit" / "REQ-001" / "test" / "test_pricing.py"
+        os.utime(stale, (1_700_000_000, 1_700_000_000))
+        os.utime(promoted, (1_700_100_000, 1_700_100_000))
+        kit = self.proj / "runs" / "kit" / "REQ-002"
+        (kit / "test" / "test_checkout.py").write_text("from checkout import total\nassert total(2) == 23\n")
+
+        body = self._post("/v1/eval/run", "REQ-002", regression=True).json()
+        self.assertIn("regression::REQ-001::unit", [c["name"] for c in body["cases"] if c["passed"]], body)
+        work = self.proj / "runs" / "eval" / "REQ-002" / "regression" / "REQ-001" / "work" / "REQ-001" / "test"
+        self.assertEqual((work / "test_pricing.py").read_text(), "from pricing import price\nassert price() == 12\n")
+
+        # a first commit of the project records both in the same commit: still the promoted version
+        self._git("init", "-q")
+        self._git("add", "-A")
+        self._git("commit", "-q", "-m", "initial", date="2026-11-14T08:37:00")
+        committed = self._post("/v1/eval/run", "REQ-002", regression=True).json()
+        self.assertIn("regression::REQ-001::unit", [c["name"] for c in committed["cases"] if c["passed"]], committed)
+
+        # the KIT copy modified after the promoted one stays the KIT's (the developer changed it)
+        os.utime(stale, (1_700_200_000, 1_700_200_000))
+        again = self._post("/v1/eval/run", "REQ-002", regression=True).json()
+        self.assertNotIn("regression::REQ-001::unit", [c["name"] for c in again["cases"] if c["passed"]])
 
     def test_the_promoted_version_of_a_test_gets_the_helpers_it_imports(self):
         # the reconciled test promotion delivered imports a helper that sits at the canonical test root

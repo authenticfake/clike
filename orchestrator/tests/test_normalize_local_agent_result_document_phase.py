@@ -110,12 +110,35 @@ Gate expectations require all acceptance tests to pass.
 """
 
 
+def _inputs(skip=(), body=None):
+    """The six project inputs /idea writes next to IDEA.md, each with an ID table."""
+    from services.idea_inputs import INPUT_PATHS
+
+    row = "| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n"
+    text = body if body is not None else "# Inputs\n\n## Changes\nFirst version\n\n| ID | Situation | Expected | Req |\n|---|---|---|---|\n" + row * 4
+    return [_file(p, text) for p in INPUT_PATHS if p.rsplit("/", 1)[-1] not in skip]
+
+
 def test_idea_accepts_canonical_idea_md():
-    result = _normalize("idea", [_file("docs/harper/IDEA.md", VALID_IDEA)], req_id="SOLUTION")
-    assert result["ok"] is True
-    assert {f["path"] for f in result["files"]} == {"docs/harper/IDEA.md"}
+    result = _normalize("idea", [_file("docs/harper/IDEA.md", VALID_IDEA), *_inputs()], req_id="SOLUTION")
+    assert result["ok"] is True, result["errors"]
+    assert {f["path"] for f in result["files"]} == {"docs/harper/IDEA.md", *(f["path"] for f in _inputs())}
     assert "local_agent_wrote_outside_allowed_roots" not in result["errors"]
     assert "document_phase_output_incomplete" not in result["errors"]
+
+
+def test_idea_without_the_project_inputs_or_their_ids_is_incomplete():
+    missing = _normalize("idea", [_file("docs/harper/IDEA.md", VALID_IDEA), *_inputs(skip=("EDGE_CASES.md",))], req_id="SOLUTION")
+    assert missing["ok"] is False and "document_phase_required_outputs_missing" in missing["errors"]
+    prose = "Some text without any identifier. " * 20
+    no_ids = _normalize("idea", [_file("docs/harper/IDEA.md", VALID_IDEA), *_inputs(body=prose)], req_id="SOLUTION")
+    assert no_ids["ok"] is False and "document_phase_output_incomplete" in no_ids["errors"]
+    assert "idea:inputs_without_ids:REQUIREMENTS.md" in no_ids["warnings"]
+    assert "idea:inputs_without_ids:COVERAGE.md" not in no_ids["warnings"]  # a mapping table, IDs optional
+    assert "idea:inputs_without_ids:DECISIONS.md" not in no_ids["warnings"]  # may hold no open decision
+    # an input outside docs/harper/inputs/ is still refused
+    stray = _normalize("idea", [_file("docs/harper/IDEA.md", VALID_IDEA), *_inputs(), _file("docs/harper/NOTES.md", "x")], req_id="SOLUTION")
+    assert "local_agent_wrote_outside_allowed_roots" in stray["errors"]
 
 
 def test_spec_accepts_canonical_spec_md():
@@ -230,7 +253,7 @@ def test_idea_headings_only_skeleton_is_rejected():
             "",
         ]
     )
-    result = _normalize("idea", [_file("docs/harper/IDEA.md", skeleton)], req_id="SOLUTION")
+    result = _normalize("idea", [_file("docs/harper/IDEA.md", skeleton), *_inputs()], req_id="SOLUTION")
     assert result["ok"] is False
     assert "document_phase_output_incomplete" in result["errors"]
     assert any(w.startswith("idea:empty_section") for w in result["warnings"])

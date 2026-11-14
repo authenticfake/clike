@@ -16,6 +16,7 @@ const {
 const { validateLocalMcpRequest } = require('./mcp-request-guard');
 const extensionMcp = require('./extension-mcp');
 const autopilot = require('./autopilot');
+const { safePanel, panelPost } = require('./safe-panel');
 const { syncAgentSkills, lockedRootsEnv } = require('./agent-skills');
 const { extractSessionId, sessionToResume, rememberSession, resumeArgs } = require('./agent-sessions');
 const KIT_SESSIONS_KEY = 'clike.kitAgentSessions';
@@ -308,6 +309,7 @@ const {
   rejectedHarperArtifactPath,
   formatHarperError,
 } = require('./harper-canonical-validation');
+const { harperRagTargets, isRagIndexable } = require('./harper-rag-targets');
 
 let clikeChatPanel = null;
 // the chat's message handler, so MCP tools can run phases through the same governed flow and await them
@@ -336,10 +338,15 @@ let lastAutopilotRun = null;
 // "Stop after this step" (the run card): the --fix loops and the after-KIT auto-eval end at the
 // next step boundary instead of going on; cleared when a new command starts.
 let harperStopAfterStep = false;
-// the run feed of the chat panel (run card, status bar): what the handlers and agents report to it
-let activeRunFeed = null;
-function runFeedLive(text) { try { if (activeRunFeed) activeRunFeed.live(text); } catch { /* the card is best effort */ } }
-function runFeedCost(telemetry) { try { if (activeRunFeed) activeRunFeed.cost(telemetry); } catch { /* idem */ } }
+// the run feed of the chat panel (run card, status bar): what the handlers and agents report to it.
+// A run started in a chat that was closed keeps its own feed until it ends (orphanRunFeed): the
+// chat reopened meanwhile shows that run.
+let chatRunFeed = null;
+let orphanRunFeed = null;
+function orphanRunActive() { return !!(orphanRunFeed && orphanRunFeed.active()); }
+function activeRunFeed() { return orphanRunFeed && orphanRunFeed.active() ? orphanRunFeed : chatRunFeed; }
+function runFeedLive(text) { try { const feed = activeRunFeed(); if (feed) feed.live(text); } catch { /* the card is best effort */ } }
+function runFeedCost(telemetry) { try { const feed = activeRunFeed(); if (feed) feed.cost(telemetry); } catch { /* idem */ } }
 /** The run card asked to stop after the current step: the loop says so and ends cleanly. */
 function stopAfterStepRequested(say, what) {
   if (!harperStopAfterStep) return false;
@@ -420,7 +427,23 @@ async function acceptAcceptanceEdit(wsRoot, reqId, givenReason) {
     }
     const res = await postAcceptanceAccept(wsRoot, reqId, reason, author || require('os').userInfo().username);
     const rejected = Object.entries(res?.rejected || {}).map(([file, why]) => `${file} (${[].concat(why).join('; ')})`);
-    if (res?.accepted?.length) echo(`✔ ${reqId}: accepted ${res.accepted.join(', ')} (audit ${res.audit_id}). Run the eval again.`);
+    if (res?.accepted?.length) {
+      echo(`✔ ${reqId}: accepted ${res.accepted.join(', ')} (audit ${res.audit_id}). Run the eval again.`);
+      // an /autopilot that parked the REQ for this retries it next time (its files did not change)
+      try {
+        const statePath = path.join(wsRoot.fsPath, ...autopilot.STATE_REL.split('/'));
+        const released = autopilot.releaseParked(JSON.parse(fsSync.readFileSync(statePath, 'utf8')), reqId);
+        // a running /autopilot rewrites the state from memory at its next step: release it there too
+        if (autopilotRun) {
+          autopilotRun.parked.delete(String(reqId).toUpperCase());
+          delete autopilotRun.parkedInfo[String(reqId).toUpperCase()];
+        }
+        if (released) {
+          fsSync.writeFileSync(statePath, JSON.stringify(released, null, 2));
+          echo(`${reqId}: released from the autopilot's parked REQs — /autopilot retries it.`);
+        }
+      } catch { /* no autopilot state */ }
+    }
     else if (!rejected.length) echo(`${reqId}: the tests and ci/ match the lock, nothing to accept.`);
     if (rejected.length) echo(`✖ ${reqId}: not accepted, they remove or weaken checks — restore them or re-run /kit ${reqId}: ${rejected.join(', ')}`);
     if (rejected.length && proposal?.applied && !res?.accepted?.length) {
@@ -664,89 +687,52 @@ async function collectFinalizeRagItems(workspaceRootUri, maxFiles = 400, maxByte
   }
   return targets;
 }
-// --- : collect lane-guides for RAG after /plan ------------------------
-async function collectLaneGuidesRagItems(workspaceRoot, opts = {}) {
-  if (!workspaceRoot) {
-    return [];
-  }
-
-  const maxFiles = opts.maxFiles ?? 200;
-  const maxBytes = opts.maxBytes ?? 256 * 1024;
-
+// --- the Harper artifacts of a phase, for the project RAG (harper-rag-targets.js) -------------
+async function collectHarperDocsRagItems(workspaceRoot, phase, opts = {}) {
+  if (!workspaceRoot) return [];
+  const maxFiles = opts.maxFiles ?? 400;
+  const maxBytes = opts.maxBytes ?? 512 * 1024;
   const rootFsPath = workspaceRoot.fsPath;
-  const laneRootDir = path.join(rootFsPath, 'docs', 'harper', 'lane-guides');
-  const laneRootUri = vscode.Uri.file(laneRootDir);
-
-  let stat;
-  try {
-    stat = await vscode.workspace.fs.stat(laneRootUri);
-  } catch {
-    // Folder does not exist yet → nothing to index
-    return [];
-  }
-
-  if (!stat || stat.type !== vscode.FileType.Directory) {
-    return [];
-  }
-
+  const { files, dirs } = harperRagTargets(phase);
   const items = [];
+  const seen = new Set();
 
-  async function walk(dirUri, relBase) {
-    const entries = await vscode.workspace.fs.readDirectory(dirUri);
+  async function add(relPath) {
+    if (items.length >= maxFiles || seen.has(relPath) || !isRagIndexable(path.posix.basename(relPath))) return;
+    seen.add(relPath);
+    let data;
+    try {
+      data = await vscode.workspace.fs.readFile(vscode.Uri.file(path.join(rootFsPath, relPath)));
+    } catch {
+      return; // not written by this project (yet)
+    }
+    if (!data || !data.byteLength) return;
+    if (data.byteLength > maxBytes) {
+      log(`[harperRAG] skip ${relPath}: ${data.byteLength} bytes over ${maxBytes}`);
+      return;
+    }
+    items.push({ path: relPath, bytes_b64: Buffer.from(data).toString('base64') });
+  }
 
+  async function walk(relDir) {
+    let entries;
+    try {
+      entries = await vscode.workspace.fs.readDirectory(vscode.Uri.file(path.join(rootFsPath, relDir)));
+    } catch {
+      return; // folder absent
+    }
     for (const [name, type] of entries) {
-      const childUri = vscode.Uri.joinPath(dirUri, name);
-      const relPath = relBase ? path.posix.join(relBase, name) : name;
-
-      if (type === vscode.FileType.Directory) {
-        await walk(childUri, relPath);
-        if (items.length >= maxFiles) {
-          return;
-        }
-        continue;
-      }
-
-      if (type !== vscode.FileType.File) {
-        continue;
-      }
-
-      const ext = (name.split('.').pop() || '').toLowerCase();
-      const ALLOWED = ['md', 'markdown', 'txt'];
-
-      if (!ALLOWED.includes(ext)) {
-        continue;
-      }
-
-      let data;
-      try {
-        data = await vscode.workspace.fs.readFile(childUri);
-      } catch (err) {
-        log(`[harperRAG] skip lane-guide (read error): ${childUri.fsPath} -> ${err}`);
-        continue;
-      }
-
-      if (!data || !data.byteLength) {
-        continue;
-      }
-
-      const slice = data.byteLength > maxBytes ? data.slice(0, maxBytes) : data;
-      const b64 = Buffer.from(slice).toString('base64');
-      const relFromRoot = path.posix.join('docs', 'harper', 'lane-guides', relPath);
-
-      items.push({
-        path: relFromRoot,
-        bytes_b64: b64,
-      });
-
-      if (items.length >= maxFiles) {
-        log(`[harperRAG] lane-guide RAG items truncated at ${maxFiles} files`);
-        return;
-      }
+      if (items.length >= maxFiles) return;
+      const rel = path.posix.join(relDir, name);
+      if (type === vscode.FileType.Directory) await walk(rel);
+      else if (type === vscode.FileType.File) await add(rel);
     }
   }
 
-  await walk(laneRootUri, '');
-  log(`[harperRAG] collected ${items.length} lane-guide RAG items`);
+  for (const f of files) await add(f);
+  for (const d of dirs) await walk(d);
+  if (items.length >= maxFiles) log(`[harperRAG] /${phase} RAG items truncated at ${maxFiles} files`);
+  log(`[harperRAG] collected ${items.length} RAG items after /${phase}`);
   return items;
 }
 
@@ -1015,10 +1001,33 @@ const DOCUMENT_PHASE_CANDIDATE_OUTPUTS = {
   plan: ['docs/harper/PLAN.md', 'docs/harper/plan.json'],
 };
 const DOCUMENT_PHASE_CANDIDATE_DIRS = {
-  idea: [],
+  idea: ['docs/harper/inputs'],
   spec: [],
   plan: ['docs/harper/lane-guides'],
 };
+
+// clike.kit.agentEvalChecks as the orchestrator accepts it: a whole number 0..12 (a value edited by
+// hand out of range or with a fraction would make every /kit fail with 422)
+function kitEvalChecks(value) {
+  const n = Math.floor(Number(value ?? 6));
+  return Number.isFinite(n) ? Math.min(12, Math.max(0, n)) : 6;
+}
+
+// Files under docs/inputs and docs/reference (the sources /idea reads besides the attachments).
+function countProjectSourceFiles(root) {
+  let count = 0;
+  const walk = (dir, depth) => {
+    let entries = [];
+    try { entries = fsSync.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      if (e.name.startsWith('.')) continue;
+      if (e.isDirectory() && depth < 6) walk(path.join(dir, e.name), depth + 1);
+      else if (e.isFile()) count += 1;
+    }
+  };
+  for (const rel of ['docs/inputs', 'docs/reference']) walk(path.join(root, ...rel.split('/')), 0);
+  return count;
+}
 
 async function collectDocumentPhaseCandidateFileArtifacts(
   workspaceRootUri,
@@ -1267,16 +1276,20 @@ async function executeLocalAgentPackage({
     evalCheckBridge = startEvalCheckBridge({
       workspaceRoot: toFsPath(wsroot),
       maxRuns: Number(evalCheck.max_runs || 8),
-      runChecks: (checks) => postEvalChecks(evalCheck.profile, wsroot, reqForAgent, checks),
+      runChecks: (checks) => postEvalChecks(evalCheck.profile, wsroot, reqForAgent, checks, { agentCheck: true }),
       log,
       targets: Array.isArray(evalCheck.targets) ? evalCheck.targets : [],
+      regression: Array.isArray(evalCheck.regression) ? evalCheck.regression : [],
       // a repair's changes to existing (locked) tests are governed after the run: the agent is told
-      ...(phaseForAgent === 'kit' && reqForAgent ? { testRoot: `runs/kit/${reqForAgent}/test` } : {}),
+      // (a KIT being written has no locked tests yet, unless acceptance-first locked them)
+      ...(phaseForAgent === 'kit' && reqForAgent && (evalCheck.stage !== 'kit' || evalCheck.locked) ? { testRoot: `runs/kit/${reqForAgent}/test` } : {}),
     });
     launcherArgs = agentArgsForEvalCheck(selectedExecutor, launcherArgs);
     panel.webview.postMessage({
       type: 'echo',
-      message: `🔁 ${executorLabel} can re-run the failed checks in the CLike eval sandbox during this repair (up to ${evalCheck.max_runs || 8} runs).`,
+      message: evalCheck.stage === 'kit'
+        ? `🔁 ${executorLabel} runs the KIT's checks in the CLike eval sandbox before finishing (up to ${evalCheck.max_runs} runs), so the first eval passes.`
+        : `🔁 ${executorLabel} can re-run the failed checks in the CLike eval sandbox during this repair (up to ${evalCheck.max_runs || 8} runs).`,
     });
   }
 
@@ -2230,6 +2243,7 @@ function cfg() {
     autoEvalMaxCycles: c.get('autoEval.maxCycles', 2),
     autoEvalExtraCyclesOnProgress: c.get('autoEval.extraCyclesOnProgress', 3),
     autoEvalAgentEvalChecks: c.get('autoEval.agentEvalChecks', 8),
+    kitAgentEvalChecks: c.get('kit.agentEvalChecks', 6),
     evalToolsInstall: c.get('evalTools.install', 'ask'),
     finalizeVerify: c.get('finalize.verify', true),
     finalizeVerifyMaxCycles: c.get('finalize.verifyMaxCycles', 3),
@@ -4142,6 +4156,11 @@ function createRunFeed(panel, context, post) {
       clearTimeout(hideTimer);
       hideTimer = setTimeout(() => status.hide(), 15000);
     }
+    if (closed) {
+      // the chat reopened meanwhile was kept busy by this run (orphanRunActive): free it
+      post({ type: 'busy', on: false, force: true });
+      setTimeout(dispose, 15000);
+    }
   }
 
   /** Around every chat handler call (nested ones included): the run's steps. */
@@ -4163,11 +4182,16 @@ function createRunFeed(panel, context, post) {
     }
   }
 
-  panel.onDidDispose(() => { clearInterval(tick); clearInterval(poll); clearTimeout(hideTimer); status.dispose(); });
+  // a run outlives its chat: once the chat is closed the card goes on in the chat reopened after
+  // it (safe-panel.js relays the messages), the status bar stays; both end with the run
+  let closed = false;
+  const dispose = () => { clearInterval(tick); clearInterval(poll); clearTimeout(hideTimer); status.dispose(); };
+  panel.onDidDispose(() => { closed = true; if (!tracker.active()) dispose(); });
 
   return {
     around,
     render,
+    active: () => tracker.active(),
     // the echoes of the handlers: the run card's "now" line
     observe(message) {
       if (!message || !tracker.active()) return;
@@ -4395,26 +4419,29 @@ function createCockpitFeed(panel, context, runs = null) {
 
 async function cmdOpenChat(context) {
   out.appendLine(`cmdOpenChat ${context}`);
-  const panel = vscode.window.createWebviewPanel(
+  // safe once closed: a run nobody watches any more goes on, its messages in the chat reopened
+  // after it (safe-panel.js)
+  const panel = safePanel(vscode.window.createWebviewPanel(
     'clikeChat',
     'CLike Chat',
     vscode.ViewColumn.Beside,
     { enableScripts: true, retainContextWhenHidden: true }
-  );
+  ), { successor: () => clikeChatPanel });
 
   clikeChatPanel = panel;
 
-  const originalPostMessage = panel.webview.postMessage.bind(panel.webview);
+  const originalPostMessage = panelPost(panel);
   // the run card's "now" line: what the handlers say while a command runs
-  let runObserver = null;
+  let feedReady = false;
   panel.webview.postMessage = (message, ...args) => {
-    try { if (runObserver) runObserver(message); } catch { /* best effort */ }
+    // the run's card follows its echoes, also those of a run started in a chat closed since
+    try { const feed = feedReady && activeRunFeed(); if (feed) feed.observe(message); } catch { /* best effort */ }
     try {
       if (
         message &&
         message.type === 'busy' &&
         message.on === false &&
-        clikeHarperBlockingRun &&
+        (clikeHarperBlockingRun || orphanRunActive()) &&
         message.force !== true
       ) {
         out.appendLine('[CLike][busy] suppressed premature busy=false during Harper blocking run');
@@ -5239,24 +5266,40 @@ async function cmdOpenChat(context) {
             const wsrootPre = getWorkspaceRoot();
             let ideaPresent = false;
             let specPresent = false;
+            let planPresent = false;
+            let planOlderThanSpec = false;
+            let sourceFileCount = 0;
             if (wsrootPre) {
-              if (phase === 'spec') {
+              if (phase === 'idea') {
+                sourceFileCount = countProjectSourceFiles(wsrootPre.fsPath);
+              } else if (phase === 'spec') {
                 try {
                   await vscode.workspace.fs.stat(vscode.Uri.joinPath(wsrootPre, 'docs', 'harper', 'IDEA.md'));
                   ideaPresent = true;
                 } catch { /* missing */ }
               } else if (phase === 'plan') {
+                let specMtime = 0;
                 try {
-                  await vscode.workspace.fs.stat(vscode.Uri.joinPath(wsrootPre, 'docs', 'harper', 'SPEC.md'));
+                  specMtime = (await vscode.workspace.fs.stat(vscode.Uri.joinPath(wsrootPre, 'docs', 'harper', 'SPEC.md'))).mtime;
                   specPresent = true;
+                } catch { /* missing */ }
+                try {
+                  const planMtime = (await vscode.workspace.fs.stat(vscode.Uri.joinPath(wsrootPre, 'docs', 'harper', 'plan.json'))).mtime;
+                  planPresent = true;
+                  planOlderThanSpec = specPresent && planMtime < specMtime;
                 } catch { /* missing */ }
               }
             }
             const preflight = evaluateDocumentPhaseInputPreflight({
               phase,
               attachmentCount: Array.isArray(attachments) ? attachments.length : 0,
+              sourceFileCount,
               ideaPresent,
               specPresent,
+              methodology: msg.methodology,
+              agent: msg.agent,
+              planPresent,
+              planOlderThanSpec,
             });
             if (!preflight.ok) {
               log(`[harperRun] document-phase preflight blocked phase=${phase} code=${preflight.code}`);
@@ -5474,7 +5517,12 @@ async function cmdOpenChat(context) {
               ...(requestedKitPhases ? { phases: requestedKitPhases } : {}),
               // a manual /kit --repair carries the latest failures like auto-eval (the cloud sees only the prompt)
               ...(msg.autoEvalRepair ? { repair: msg.autoEvalRepair } : (msg.repair ? { repair: manualRepairRequest(toFsPath(wsroot), targetReqId) || true } : {})),
-              ...(msg.acceptanceFirst ? { acceptance_first: true } : {})
+              ...(msg.acceptanceFirst ? { acceptance_first: true } : {}),
+              // a local agent writing the KIT runs its checks in the real eval sandbox before it
+              // finishes (a repair asks with its failures instead); the cloud ignores it
+              ...(!msg.autoEvalRepair && !msg.repair && kitEvalChecks(cfg().kitAgentEvalChecks) > 0
+                ? { eval_check: true, eval_check_max_runs: kitEvalChecks(cfg().kitAgentEvalChecks) }
+                : {})
             };
           }
           if (phase === 'finalize' && cfg().finalizeVerify) {
@@ -5675,7 +5723,8 @@ async function cmdOpenChat(context) {
           }
           //log(`[harperRun] body (core_blobs):`,  JSON.stringify(body.core_blobs))
           if (activeProvider) _headers["X-CLike-Provider"] = activeProvider
-          const harperTimeout = cfg().harperTimeout;
+          // the gateway gives /idea and a KIT up to 30 minutes per model call: never give up before it
+          const harperTimeout = Math.max(Number(cfg().harperTimeout) || 25, ['idea', 'kit', 'acceptance'].includes(String(cmd)) ? 32 : 0);
           clikeHarperBlockingRun = true;
           panel.webview.postMessage({ type: 'busy', on: true });
           let outGateway = await callHarper(cmd, body, _headers, { timeoutMs: 1000 * 60 * harperTimeout, signal: harperSignal() });
@@ -6078,22 +6127,16 @@ async function cmdOpenChat(context) {
               log(`[kitReadiness] not computed: ${e?.message || e}`);
             }
           }
-          // /extend and /idea --extend change lane guides too: the index follows them
-          if (phase === 'plan' || phase === 'extend') {
-            try {
-              const laneItems = await collectLaneGuidesRagItems(wsroot, {
-                maxFiles: 200,
-                maxBytes: 512 * 1024,
-              });
-              const count = (laneItems && laneItems.length) || 0;
-              log(`[harperRAG] lane-guides collection after /${phase}: ${count} items`);
-              if (count > 0) {
-                await preIndexRag(project_id, laneItems, urlRag, out);
-                log(`[harperRAG] indexed ${count} lane-guide items for project ${project_id}`);
-              }
-            } catch (e) {
-              log(`[harperRAG] lane-guides indexing failed: ${e?.message || e}`);
-            }
+          // The Harper artifacts of the phase (IDEA, SPEC, PLAN, inputs, UX/BMAD companions, lane
+          // guides, finalize documents) go to the project RAG; unchanged files are not re-embedded.
+          if (['idea', 'spec', 'plan', 'extend', 'finalize'].includes(phase)) {
+            // in the background: the phase is done, indexing (up to minutes) does not hold the chat
+            collectHarperDocsRagItems(wsroot, phase)
+              .then((docItems) => docItems.length > 0
+                ? preIndexRag(project_id, docItems, urlRag, out, { timeoutMs: 180000 })
+                  .then((res) => log(`[harperRAG] /${phase}: ${docItems.length} artifacts sent to the RAG of ${project_id} -> ${JSON.stringify(res)}`))
+                : null)
+              .catch((e) => log(`[harperRAG] /${phase} artifacts not indexed: ${e?.message || e}`));
           }
           if (phase==="kit") {
             await saveKitCommand(wsroot,plan,targetReqId,out)
@@ -6900,6 +6943,14 @@ async function cmdOpenChat(context) {
             out.appendLine('[CLike] models fetch failed: ' + (e?.message || String(e)));
             panel.webview.postMessage({ type: 'models', models: ['auto'] });
           }
+          // 5) A run started in a chat closed since (an /autopilot, an --fix loop) goes on: this chat
+          // follows it live (its messages and card come here) and stays busy until it ends
+          if (orphanRunActive()) {
+            const what = autopilotRun ? `/autopilot (now: ${autopilotRun.current || 'between steps'})` : 'a CLike run';
+            panel.webview.postMessage({ type: 'echo', message: `▶ ${what} started in the chat closed earlier is still running: its messages follow here. Stop it from the run card.` });
+            panel.webview.postMessage({ type: 'busy', on: true });
+            orphanRunFeed.render();
+          }
         } catch (e) {
           out.appendLine('[CLike] webview_ready handler crashed: ' + (e?.message || String(e)));
           // Minimal fallback so the webview is not left "empty"
@@ -7544,9 +7595,12 @@ async function cmdOpenChat(context) {
   // Every handler call, the nested ones of the --fix loops and the autopilot included, goes
   // through the run feed: the run card and the status bar follow the real steps.
   const runs = createRunFeed(panel, context, (m) => originalPostMessage(m));
-  activeRunFeed = runs;
-  runObserver = runs.observe;
-  panel.onDidDispose(() => { if (activeRunFeed === runs) activeRunFeed = null; });
+  chatRunFeed = runs;
+  feedReady = true;
+  panel.onDidDispose(() => {
+    if (chatRunFeed === runs) chatRunFeed = null;
+    if (runs.active()) orphanRunFeed = runs;
+  });
   // runs nobody watches (MCP, autopilot): never a modal question
   let unattendedRuns = 0;
   const handleWebviewMessage = (msg) => {
@@ -7557,7 +7611,7 @@ async function cmdOpenChat(context) {
 
   // Cockpit (side panel of the cockpit layout, autocompletion in every layout): its messages never
   // touch the busy state, a run in progress stays as it is.
-  const cockpit = createCockpitFeed(panel, context, runs);
+  const cockpit = createCockpitFeed(panel, context, { render: () => (activeRunFeed() || runs).render() });
   panel.webview.onDidReceiveMessage((msg) => {
     if (msg && cockpit.handles(msg.type)) return cockpit.handle(msg);
     const done = cockpit.track(msg && msg.type, handleWebviewMessage(msg));

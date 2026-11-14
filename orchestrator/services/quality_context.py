@@ -369,9 +369,13 @@ def _kit_block(catalog: List[Dict[str, Any]], req: Optional[Dict[str, Any]], req
 
 def build_quality_context(
     *, phase: str, payload: Dict[str, Any], execution_mode: str, req_id: Optional[str], workspace_root: Optional[Path],
+    methodology_context: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """{phase, profile, scenarios: [ids in the block], text} — text is '' when nothing applies."""
+    """{phase, profile, scenarios: [ids in the block], text} — text is '' when nothing applies. A
+    companion-only role (BMAD spec/ux, plan/pm) writes no canonical document: nothing applies."""
     lphase = str(phase or "").strip().lower()
+    if bool(((methodology_context or {}).get("artifact_policy") or {}).get("companion_only")):
+        return {"phase": lphase, "profile": None, "scenarios": [], "text": ""}
     core_blobs = payload.get("core_blobs") if isinstance(payload.get("core_blobs"), dict) else {}
     catalog = load_scenario_catalog(core_blobs, workspace_root)
     profile = resolve_capacity_profile(payload, execution_mode)

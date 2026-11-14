@@ -376,7 +376,15 @@
   },
   "artifact_policy": {
     "idea/analyst": {
-      "canonical_outputs": ["docs/harper/IDEA.md"],
+      "canonical_outputs": [
+        "docs/harper/IDEA.md",
+        "docs/harper/inputs/REQUIREMENTS.md",
+        "docs/harper/inputs/EDGE_CASES.md",
+        "docs/harper/inputs/JOURNEYS.md",
+        "docs/harper/inputs/TEST_SCENARIOS.md",
+        "docs/harper/inputs/DECISIONS.md",
+        "docs/harper/inputs/COVERAGE.md"
+      ],
       "mandatory_companion_outputs": [
         "docs/harper/bmad/idea/BRIEF.md",
         "docs/harper/bmad/idea/PRFAQ_NOTES.md",
@@ -464,7 +472,8 @@
       "open_ended_generation_allowed": true
     },
     "plan/pm": {
-      "canonical_outputs": ["docs/harper/PLAN.md", "docs/harper/plan.json", "docs/harper/lane-guides/**"],
+      "canonical_outputs": [],
+      "companion_only": true,
       "mandatory_companion_outputs": [
         "docs/harper/bmad/plan/STORIES.md",
         "docs/harper/bmad/plan/STORY_MAP.md",
@@ -472,13 +481,16 @@
       ],
       "allowed_companion_root_globs": ["docs/harper/bmad/plan/**"],
       "forbidden_outputs": [
+        "docs/harper/PLAN.md",
+        "docs/harper/plan.json",
+        "docs/harper/lane-guides/**",
         "docs/harper/IDEA.md",
         "docs/harper/SPEC.md",
         "src/**",
         "test/**",
         "tests/**"
       ],
-      "authority": "canonical-harper-artifact-with-companion-context",
+      "authority": "companion-context-only",
       "conflict_resolution": "canonical-wins",
       "downstream_consumers": ["kit/developer", "eval/qa", "finalize/tech-writer"],
       "open_ended_generation_allowed": true

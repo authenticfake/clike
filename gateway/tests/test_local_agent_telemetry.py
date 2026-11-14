@@ -55,6 +55,31 @@ class LocalAgentTelemetryTests(unittest.TestCase):
 
         self.assertEqual(_cost_from_row(row), 0.05)
 
+    def test_an_eval_sandbox_run_keeps_its_outcome_and_counts_time_not_providers(self):
+        body = {
+            "project_id": "cdl", "phase": "eval", "provider": "eval_sandbox", "executor": "eval_sandbox",
+            "execution": "eval_sandbox", "duration_ms": 157000, "req_id": "REQ-009",
+            "outcome": {"scope": "full", "status": "PASS", "passed": 98, "regression_s": 111.4, "reused": False, "x": {"nested": 1}},
+        }
+        self.assertEqual(self.client.post("/v1/harper/telemetry", json=body, headers=AUTH).json(), {"ok": True})
+        kit = {"project_id": "cdl", "phase": "kit", "provider": "gpt_codex", "model": "m", "duration_ms": 1000,
+               "req_id": "REQ-009", "execution": "bogus"}
+        self.client.post("/v1/harper/telemetry", json=kit, headers=AUTH)
+        rows = [json.loads(line) for line in (Path(self.tmp.name) / "cdl.json").read_text().splitlines()]
+        self.assertEqual(rows[0]["execution"], "eval_sandbox")
+        self.assertEqual(rows[0]["outcome"], {"scope": "full", "status": "PASS", "passed": 98, "regression_s": 111.4, "reused": False})
+        self.assertEqual(rows[1]["execution"], "local_agent")  # an unknown execution is a local agent's
+        self.assertNotIn("outcome", rows[1])
+
+        from routes.telemetry_api import _aggregate_rows
+
+        agg = _aggregate_rows(rows)
+        self.assertEqual(agg["per_phase"]["eval"]["duration_ms"], 157000)
+        self.assertEqual(agg["per_req"]["REQ-009"]["duration_ms"], 158000)
+        self.assertEqual(agg["per_req"]["REQ-009"]["per_phase"], {"eval": 1, "kit": 1})
+        self.assertNotIn("eval_sandbox", agg["per_provider"])
+        self.assertEqual(list(agg["per_model"]), ["m"])
+
     def test_requires_the_service_token(self):
         body = {"project_id": "p", "phase": "kit", "provider": "claude_code"}
         self.assertEqual(self.client.post("/v1/harper/telemetry", json=body).status_code, 401)

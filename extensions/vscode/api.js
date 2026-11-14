@@ -1,6 +1,7 @@
 
 const vscode = require('vscode');
-const { readTextFile, getProjectNameFromWorkspace }  = require('./utility');
+const { readTextFile, getProjectNameFromWorkspace, getProjectId }  = require('./utility');
+const { persistTelemetryVSCode, sandboxRunTelemetry } = require('./telemetry');
 const { orchestratorUrl, requestJson } = require('./orchestrator-client');
 
 // --- api.js ---
@@ -23,6 +24,16 @@ function asFsPath(workspaceRoot) {
   if (typeof workspaceRoot === "string") return workspaceRoot;
   // VS Code Uri
   return workspaceRoot.fsPath || workspaceRoot.path || ".";
+}
+
+// Eval and gate runs in .clike/telemetry (time and outcome; the orchestrator records them in the
+// portal). An agent's own runs while it writes a KIT are part of the KIT's time: not recorded.
+function recordSandboxRun(workspaceRoot, phase, startedAt, result, scope) {
+  if (!result || typeof result !== 'object' || typeof workspaceRoot === 'string') return result;
+  Promise.resolve()
+    .then(() => persistTelemetryVSCode(workspaceRoot, getProjectId(), null, phase, sandboxRunTelemetry(result, startedAt, scope)))
+    .catch(() => { /* telemetry never fails an eval */ });
+  return result;
 }
 
 /**
@@ -51,14 +62,16 @@ async function postEvalRun(profile, workspaceRoot,req_id, mode, modeResult, sign
         // a targeted re-eval in a repair loop: the regression of these promoted REQs only (never a verdict)
         ...(Array.isArray(options.regressionReqs) && options.regressionReqs.length ? { regression_reqs: options.regressionReqs } : {}) };
   // aborting closes the request: the orchestrator then stops the eval in the sandbox
-  return requestJson('POST', url, { body, timeoutMs: evalTimeoutMs(), signal: signal || undefined });
+  const startedAt = Date.now();
+  const result = await requestJson('POST', url, { body, timeoutMs: evalTimeoutMs(), signal: signal || undefined });
+  return recordSandboxRun(workspaceRoot, 'eval', startedAt, result, mode === 'manual' ? 'manual' : body.regression_reqs ? 'targeted' : 'full');
 }
 
 /**
  * Re-runs only the named checks of a REQ's eval in the sandbox (no regression, never a verdict):
  * the eval checks a local agent asks for while it repairs (eval-check-bridge.js).
  */
-async function postEvalChecks(profile, workspaceRoot, reqId, checks) {
+async function postEvalChecks(profile, workspaceRoot, reqId, checks, { agentCheck = false } = {}) {
   const projectName = getProjectNameFromWorkspace();
   if (!projectName) throw new Error('Cannot resolve current project name');
   const url = orchestratorUrl('/v1/eval/run') +
@@ -78,9 +91,14 @@ async function postEvalChecks(profile, workspaceRoot, reqId, checks) {
     ltc: raw ? JSON.parse(raw) : null,
     regression: regressionReqs.length > 0,
     checks: own.length ? own : null,
+    // a local agent's run (eval-check-bridge.js): never a verdict nor the first eval that locks
+    // the acceptance surface
+    ...(agentCheck ? { agent_check: true } : {}),
     ...(regressionReqs.length ? { regression_reqs: regressionReqs } : {}),
   };
-  return requestJson('POST', url, { body, timeoutMs: evalTimeoutMs() });
+  const startedAt = Date.now();
+  const result = await requestJson('POST', url, { body, timeoutMs: evalTimeoutMs() });
+  return agentCheck ? result : recordSandboxRun(workspaceRoot, 'eval', startedAt, result, 'checks');
 }
 
 /**
@@ -124,7 +142,9 @@ async function postGateCheck(profile, workspaceRoot, req_id, options = {}) {
     : { ltc: ltcDoc, regression: evalRegression(), ...(strict ? { strict: true } : {}) };
 
   const url = orchestratorUrl(`/v1/gate/check?${qs.toString()}`);
-  return requestJson('POST', url, { body, timeoutMs: evalTimeoutMs(), signal: opts.signal || undefined });
+  const startedAt = Date.now();
+  const result = await requestJson('POST', url, { body, timeoutMs: evalTimeoutMs(), signal: opts.signal || undefined });
+  return recordSandboxRun(workspaceRoot, 'gate', startedAt, result, 'gate');
 }
 
 

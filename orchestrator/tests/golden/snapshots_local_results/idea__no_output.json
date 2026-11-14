@@ -24,12 +24,13 @@
     "warnings": [
       "execution_selected:local_agent",
       "local_agent_result:normalized_by_orchestrator",
-      "missing_required_outputs:docs/harper/IDEA.md"
+      "missing_required_outputs:docs/harper/IDEA.md,docs/harper/inputs/REQUIREMENTS.md,docs/harper/inputs/EDGE_CASES.md,docs/harper/inputs/JOURNEYS.md,docs/harper/inputs/TEST_SCENARIOS.md,docs/harper/inputs/DECISIONS.md,docs/harper/inputs/COVERAGE.md"
     ]
   },
   "request": {
     "allowed_write_roots": [
-      "docs/harper/IDEA.md"
+      "docs/harper/IDEA.md",
+      "docs/harper/inputs/"
     ],
     "available_capabilities": null,
     "capability_metadata": null,

@@ -1038,6 +1038,11 @@ def compose_phase_messages(payload: dict) -> list[dict]:
 
         section = cloud_finalize_section(verify, deployment_hint(payload))
         messages[-1] = {**messages[-1], "content": messages[-1]["content"] + "\n\n" + section}
+    if phase.lower() == "idea":
+        # the project inputs /idea writes next to IDEA.md (same rules as the local agents)
+        from services.idea_inputs import idea_inputs_section
+
+        messages[-1] = {**messages[-1], "content": messages[-1]["content"] + "\n\n" + idea_inputs_section()}
     if phase.lower() == "extend":
         from services.extend_cascade import cloud_extend_section
 

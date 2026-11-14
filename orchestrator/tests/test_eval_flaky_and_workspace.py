@@ -11,6 +11,7 @@ from unittest.mock import patch
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "orchestrator"))
 
+import eval_failures
 import eval_runner  # noqa: E402
 from eval_runner import EvalRunner  # noqa: E402
 
@@ -142,6 +143,25 @@ class BaselineCacheTests(_RegressionProject):
             self.assertIsNone(again.known_flaky("other", "Error: Timeout 1ms exceeded"))
             self.assertIsNone(again.known_flaky("test:integration", "no recognizable error line"))
 
+    def test_a_check_that_failed_before_for_another_reason_is_a_regression_not_unstable(self):
+        # cdl-pipeline REQ-006: a REQ-002 test had failed on the promoted tree for a stale migration
+        # pin; REQ-006 then broke it with a name collision, and "it failed before" made that a warning
+        with tempfile.TemporaryDirectory() as tmp:
+            cache = eval_runner._BaselineCache(Path(tmp) / "REQ-002.json", "d1")
+            cache.store({"postgres-integration": True},
+                        {"postgres-integration": eval_failures.error_keys("E   AssertionError: assert 'req003_registry' == 'req002_runs'")})
+            later = eval_runner._BaselineCache(Path(tmp) / "REQ-002.json", "d2")  # a later promoted state
+            self.assertIsNotNone(later.failed_before("postgres-integration"))
+            # the same error again: unstable; a new one: the candidate's
+            self.assertIsNotNone(later.failed_before(
+                "postgres-integration", "E   AssertionError: assert 'req003_registry' == 'req002_runs'"))
+            self.assertIsNone(later.failed_before(
+                "postgres-integration", 'E   AssertionError: {"code": "registration_collision", "message": "Feature data_policies collision."}'))
+            self.assertIsNone(later.failed_before("postgres-integration", "no recognizable error line"))
+            # no error line then nor now (an exit code only): unstable, as before
+            cache.store({"unit": True}, {"unit": []})
+            self.assertIsNotNone(eval_runner._BaselineCache(Path(tmp) / "REQ-002.json", "d3").failed_before("unit", "exit 1"))
+
     def test_no_baseline_is_kept_inside_the_project(self):
         self._root.stop()
         self._flaky_req001(fail_times=99)
@@ -198,9 +218,33 @@ class ParallelRegressionTests(_RegressionProject):
         self.assertFalse(self._overlap(stamps))
 
     def test_the_workers_setting_is_bounded(self):
-        for raw, expected in (("", 2), ("0", 1), ("x", 2), ("3", 3), ("99", 8)):
-            with patch.dict("os.environ", {"CLIKE_EVAL_REGRESSION_WORKERS": raw}):
-                self.assertEqual(eval_runner.regression_workers(), expected, raw)
+        gb = 1024 ** 3
+        with patch.object(eval_runner, "_sandbox_memory_limit", return_value=4 * gb), \
+                patch.object(eval_runner, "_sandbox_cpus", return_value=7):
+            for raw, expected in (("", 2), ("auto", 2), ("0", 1), ("x", 2), ("3", 3), ("99", 8)):
+                with patch.dict("os.environ", {"CLIKE_EVAL_REGRESSION_WORKERS": raw}):
+                    self.assertEqual(eval_runner.regression_workers(), expected, raw)
+
+    def test_auto_workers_follow_the_sandbox_memory_and_cpus(self):
+        gb = 1024 ** 3
+        auto = eval_runner.auto_regression_workers
+        self.assertEqual(auto(4 * gb, 7), 2)    # the default 4 GB sandbox keeps the 2 of before
+        self.assertEqual(auto(10 * gb, 7), 3)   # cdl-pipeline: 10 GB, 7 CPUs
+        self.assertEqual(auto(64 * gb, 32), 4)  # never more than 4 on its own
+        self.assertEqual(auto(1 * gb, 7), 1)
+        self.assertEqual(auto(10 * gb, 1), 1)
+        self.assertEqual(auto(None, 8), 2)      # memory unknown: as before
+
+    def test_the_report_says_where_the_eval_spent_its_time(self):
+        self._timed_kits()
+        with patch.dict("os.environ", {"CLIKE_EVAL_REGRESSION_WORKERS": "2"}):
+            body = self._post("/v1/eval/run", "REQ-002", regression=True).json()
+        timings = body["timings"]
+        self.assertEqual(sorted(timings["regression_by_req"]), ["REQ-001", "REQ-003"])
+        self.assertEqual(timings["regression_workers"], 2)
+        for key in ("total_s", "setup_s", "checks_s", "regression_s"):
+            self.assertGreaterEqual(timings[key], 0, key)
+        self.assertGreaterEqual(timings["total_s"], timings["regression_s"])
 
     def test_service_ports_are_never_handed_out_twice(self):
         import eval_environment
@@ -319,6 +363,73 @@ class WorkspaceCopyTests(unittest.TestCase):
             self.assertEqual(case.name, "env::prepare-workspace")
             self.assertTrue(case.blocked)
             self.assertIn("nothing to repair", case.stderr)
+
+    @staticmethod
+    def _undeletable(name):
+        """os.unlink failing on `name`, as a file the eval sandbox wrote before a rebuild (another
+        container's private SELinux label: EACCES on unlink although owner and mode allow it)."""
+        real = eval_runner.os.unlink
+
+        def unlink(path, *args, **kwargs):
+            if str(path).endswith(name):
+                raise PermissionError(13, "Permission denied", str(path))
+            return real(path, *args, **kwargs)
+        return patch.object(eval_runner.os, "unlink", side_effect=unlink)
+
+    def test_a_work_tree_with_an_undeletable_file_is_moved_aside_and_cleared_later(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work, trash = Path(tmp) / "work" / "REQ-001", Path(tmp) / ".stale"
+            dist = work / "ci" / "local-eval-workspaces" / "build-x" / "dist"
+            dist.mkdir(parents=True)
+            (dist / "app.whl").write_text("wheel")
+            (work / "app.py").write_text("x = 1\n")
+            with self._undeletable("app.whl"):
+                eval_runner._remove_tree(work, trash)
+            self.assertFalse(work.exists())
+            self.assertEqual([p.name for p in trash.rglob("app.whl")], ["app.whl"])
+            # the next removal (the file deletable again: the container that wrote it) empties the trash
+            work.mkdir(parents=True)
+            eval_runner._remove_tree(work, trash)
+            self.assertFalse(work.exists())
+            self.assertFalse(trash.exists())
+
+    def test_a_read_only_tree_a_check_left_is_removed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work = Path(tmp) / "work"
+            (work / "cache").mkdir(parents=True)
+            (work / "cache" / "mod.py").write_text("")
+            (work / "cache").chmod(0o500)
+            try:
+                eval_runner._remove_tree(work, Path(tmp) / ".stale")
+            finally:
+                if (work / "cache").exists():
+                    (work / "cache").chmod(0o700)
+            self.assertFalse(work.exists())
+            self.assertFalse((Path(tmp) / ".stale").exists())
+
+    def test_an_eval_after_a_rebuild_composes_its_workspace_over_undeletable_leftovers(self):
+        # cdl-pipeline REQ-009: the KIT's run built REQ-001's wheel at 12:10, the stack was rebuilt,
+        # the eval at 14:09 blocked on prepare-workspace (Permission denied on the old dist)
+        with tempfile.TemporaryDirectory() as tmp:
+            root, base = Path(tmp) / "proj", Path(tmp) / "evalbase"
+            kit = root / "runs" / "kit" / "REQ-001"
+            (kit / "ci").mkdir(parents=True)
+            base.mkdir()
+            ltc = {"req_id": "REQ-001", "checks": [{"id": "unit", "command": "true"}]}
+            (kit / "ci" / "LTC.json").write_text(json.dumps(ltc))
+            with patch.dict("os.environ", {"CLIKE_EVAL_ROOT": str(base)}):
+                runner = EvalRunner(root)
+                self.assertEqual(runner.run_profile(profile=str(kit / "ci" / "LTC.json"), ltc=ltc, req_id="REQ-001").status, "PASS")
+                works = [p for p in base.rglob("REQ-001") if p.parent.name == "work"]
+                self.assertTrue(works)
+                dist = works[0] / "ci" / "local-eval-workspaces" / "cdl-req001-build" / "dist"
+                dist.mkdir(parents=True)
+                (dist / "cdl.whl").write_text("wheel")
+                with self._undeletable("cdl.whl"):
+                    report = runner.run_profile(profile=str(kit / "ci" / "LTC.json"), ltc=ltc, req_id="REQ-001")
+            self.assertEqual(report.status, "PASS", [c.stderr for c in report.cases])
+            self.assertFalse(dist.exists())
+            self.assertTrue(list(base.rglob(".stale/*/ci/local-eval-workspaces/cdl-req001-build/dist/cdl.whl")))
 
 
 if __name__ == "__main__":

@@ -11,11 +11,13 @@ from services.methodologies.active_output_contract import build_active_output_co
 from services.methodologies.resolver import resolve_methodology_context
 
 
-def test_native_local_idea_contract_writes_only_idea_md():
+def test_native_local_idea_contract_writes_idea_md_and_the_project_inputs():
+    from services.idea_inputs import INPUT_PATHS
+
     contract = build_active_output_contract(phase="idea", runner="local_agent")
 
     assert contract["methodology"] == "native_clike"
-    assert contract["required_outputs"] == ["docs/harper/IDEA.md"]
+    assert contract["required_outputs"] == ["docs/harper/IDEA.md", *INPUT_PATHS]
     assert contract["strict_missing_required_outputs"] is False
 
 

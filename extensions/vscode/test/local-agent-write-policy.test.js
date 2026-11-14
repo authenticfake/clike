@@ -140,13 +140,22 @@ test('canonical workspace roots remain forbidden candidate outputs', () => {
   );
 });
 
-test('local-agent idea allows only docs/harper/IDEA.md', () => {
-  assert.deepStrictEqual(
-    validateLocalAgentRequiredOutputs({
-      phase: 'idea',
-      artifacts: [{ path: 'docs/harper/IDEA.md', content: '# IDEA — X' }],
-    }),
-    { ok: true, missing_required_roots: [] }
+const IDEA_INPUTS = ['REQUIREMENTS', 'EDGE_CASES', 'JOURNEYS', 'TEST_SCENARIOS', 'DECISIONS', 'COVERAGE']
+  .map((n) => `docs/harper/inputs/${n}.md`);
+
+test('local-agent idea writes IDEA.md and the project inputs, nothing else under docs/harper', () => {
+  const artifacts = [{ path: 'docs/harper/IDEA.md', content: '# IDEA — X' }, ...IDEA_INPUTS.map((p) => ({ path: p, content: '# x' }))];
+  assert.deepStrictEqual(validateLocalAgentRequiredOutputs({ phase: 'idea', artifacts }), { ok: true, missing_required_roots: [] });
+  // an input missing: the run is incomplete
+  assert.throws(
+    () => validateLocalAgentRequiredOutputs({ phase: 'idea', artifacts: artifacts.slice(0, -1) }),
+    (err) => err.code === 'LOCAL_AGENT_REQUIRED_OUTPUTS_MISSING' &&
+      JSON.stringify(err.details.missing_required_outputs) === JSON.stringify(['docs/harper/inputs/COVERAGE.md']),
+  );
+  // another docs/harper path stays forbidden
+  assert.throws(
+    () => validateLocalAgentRequiredOutputs({ phase: 'idea', artifacts: [...artifacts, { path: 'docs/harper/NOTES.md', content: 'x' }] }),
+    /forbidden/i,
   );
 });
 

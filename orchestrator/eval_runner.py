@@ -16,7 +16,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, fields
 from pathlib import Path, PurePosixPath
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import eval_environment
 import eval_failures
@@ -71,6 +71,34 @@ def _scenario_id_pattern(sid: str) -> "re.Pattern[str]":
     )
 
 
+def _remove_tree(path: Path, trash: Path) -> None:
+    """Remove a work directory an earlier run left, never failing the eval on it.
+
+    What cannot be deleted is moved aside into `trash` (same volume), so the workspace is always
+    composed fresh: a file the eval sandbox wrote before a rebuild keeps that container's private
+    SELinux label (a wheel built in /tmp, then moved into the work tree) and the new container may
+    not unlink it (cdl-pipeline REQ-009: prepare-workspace blocked on REQ-001's build output); a
+    read-only tree a check left gets its owner permissions back first.
+    """
+    def _retry_writable(func, target, _exc):
+        try:
+            os.chmod(os.path.dirname(target), 0o700)
+            func(target)
+        except OSError:
+            pass
+
+    # what earlier runs moved aside and can be deleted now (by the container that wrote it, perms)
+    if trash.exists():
+        shutil.rmtree(trash, ignore_errors=True)
+    shutil.rmtree(path, onexc=_retry_writable)
+    if not os.path.lexists(path):
+        return
+    trash.mkdir(parents=True, exist_ok=True)
+    aside = trash / f"{path.name}-{time.time_ns():x}"
+    os.rename(path, aside)
+    log.warning("eval work directory %s could not be deleted: moved aside to %s", path, aside)
+
+
 @dataclass
 class EvalCase:
     name: str
@@ -110,6 +138,9 @@ class EvalReport:
     missing_tools: Optional[List[str]] = None
     # versions of the tools installed in the sandbox's tools volume when the eval ran
     tools: Optional[Dict[str, Dict[str, str]]] = None
+    # where the eval spent its time (seconds): setup, the REQ's checks, the regression and each
+    # promoted REQ in it (wall time; workers run them side by side)
+    timings: Optional[Dict[str, Any]] = None
 
 
 def report_to_dict(rep: "EvalReport") -> Dict[str, Any]:
@@ -673,15 +704,60 @@ def _workspace_lock(project_root: Path, key: Any) -> threading.RLock:
         return _WORKSPACE_LOCKS.setdefault(name, threading.RLock())
 
 
-def regression_workers() -> int:
-    """Promoted REQs regressed at the same time (``CLIKE_EVAL_REGRESSION_WORKERS``, default 2,
-    1 = one after the other). Each one runs its own installs, tests and services: more workers need
-    more sandbox memory (``CLIKE_EVAL_SANDBOX_MEM_LIMIT``)."""
+_GB = 1024 ** 3
+# What one regression worker needs: its installs, a frontend build, a browser, test databases.
+_WORKER_MEMORY = 2 * _GB
+_WORKER_CPUS = 2
+_AUTO_WORKERS_MAX = 4
+
+
+def _sandbox_memory_limit() -> Optional[int]:
+    """The memory the sandbox may use (cgroup v2 or v1 limit, else the machine's), in bytes."""
+    for path in ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"):
+        try:
+            raw = Path(path).read_text().strip()
+        except OSError:
+            continue
+        if raw.isdigit() and int(raw) < 1 << 60:  # v1 reports "no limit" as a huge number
+            return int(raw)
     try:
-        value = int(os.getenv("CLIKE_EVAL_REGRESSION_WORKERS", "").strip() or 2)
-    except ValueError:
-        value = 2
-    return max(1, min(value, 8))
+        return os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
+    except (ValueError, OSError, AttributeError):
+        return None
+
+
+def _sandbox_cpus() -> int:
+    """CPUs the sandbox may use: the cgroup v2 quota when set, else the CPUs it can run on."""
+    try:
+        quota, period = Path("/sys/fs/cgroup/cpu.max").read_text().split()[:2]
+        if quota != "max":
+            return max(1, int(int(quota) / int(period)))
+    except (OSError, ValueError):
+        pass
+    try:
+        return len(os.sched_getaffinity(0))
+    except (AttributeError, OSError):
+        return os.cpu_count() or 1
+
+
+def auto_regression_workers(memory: Optional[int], cpus: int) -> int:
+    """Workers the sandbox's memory and CPUs sustain (about 2 GB and 2 CPUs each, at most 4):
+    a 4 GB sandbox keeps the 2 of before, a 10 GB / 7 CPU one runs 3."""
+    by_memory = (memory // _WORKER_MEMORY) if memory else 2
+    return max(1, min(_AUTO_WORKERS_MAX, by_memory, max(1, cpus // _WORKER_CPUS)))
+
+
+def regression_workers() -> int:
+    """Promoted REQs regressed at the same time (``CLIKE_EVAL_REGRESSION_WORKERS``: a number,
+    1 = one after the other, at most 8; ``auto`` or unset = what the sandbox's memory and CPUs
+    sustain). Each one runs its own installs, tests and services."""
+    raw = os.getenv("CLIKE_EVAL_REGRESSION_WORKERS", "").strip().lower()
+    if raw and raw != "auto":
+        try:
+            return max(1, min(int(raw), 8))
+        except ValueError:
+            pass
+    return auto_regression_workers(_sandbox_memory_limit(), _sandbox_cpus())
 
 
 # Installs shared by parallel regressions (a REQ's venv is also used by the services other REQs
@@ -712,6 +788,8 @@ class _BaselineCache:
         self.results: Dict[str, bool] = {}
         # check name -> when it last failed without any candidate, on any recent promoted state
         self.history: Dict[str, float] = {}
+        # check name -> the error lines of those failures (an unstable check fails the same way)
+        self.history_errors: Dict[str, List[str]] = {}
         # check name -> its normalized error lines on the promoted tree (eval_failures.error_keys)
         self.errors: Dict[str, List[str]] = {}
         # check name -> {"at", "errors"}: it failed with a candidate, then passed on a re-run of the
@@ -733,14 +811,29 @@ class _BaselineCache:
         history = {str(k): float(v) for k, v in (data.get("history") or {}).items()}
         history.update({str(k): at for k, v in (data.get("results") or {}).items() if v})
         self.history = {k: v for k, v in history.items() if time.time() - v <= self.HISTORY_AGE_S}
+        history_errors = {str(k): list(v) for k, v in (data.get("history_errors") or {}).items()}
+        history_errors.update({str(k): list(v) for k, v in (data.get("errors") or {}).items() if (data.get("results") or {}).get(k)})
+        self.history_errors = {k: v for k, v in history_errors.items() if k in self.history}
         if data.get("digest") == digest and time.time() - at <= self.MAX_AGE_S:
             self.results = {str(k): bool(v) for k, v in (data.get("results") or {}).items()}
             self.errors = {str(k): list(v) for k, v in (data.get("errors") or {}).items()}
             self.at = at or self.at  # the age counts from the first result
 
-    def failed_before(self, check: str) -> Optional[float]:
-        """When ``check`` last failed without a candidate on an earlier promoted state (recent)."""
-        return self.history.get(check)
+    def failed_before(self, check: str, excerpt: Optional[str] = None) -> Optional[float]:
+        """When ``check`` last failed without a candidate on an earlier promoted state (recent), if
+        this failure shows only errors it showed then; None otherwise. cdl-pipeline REQ-006: a REQ-002
+        test failed there for a stale migration pin, then the candidate broke it with a name collision,
+        and "it failed before" made the new breakage a warning that stayed in the product."""
+        at = self.history.get(check)
+        if at is None or excerpt is None:
+            return at
+        known, keys = set(self.history_errors.get(check) or []), eval_failures.error_keys(excerpt or "")
+        if not keys:
+            # nothing to compare now: unstable only if it showed no error line then either
+            return None if known else at
+        if any(key not in known for key in keys):
+            return None  # an error it did not show on the promoted tree: the candidate's
+        return at
 
     def result(self, check: str) -> Optional[bool]:
         """True: it fails without the candidate; False: it passes; None: not known yet."""
@@ -784,9 +877,10 @@ class _BaselineCache:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             tmp = self.path.with_suffix(".tmp")
             history = {**self.history, **{k: self.at for k, v in self.results.items() if v}}
+            history_errors = {**self.history_errors, **{k: self.errors[k] for k, v in self.results.items() if v and k in self.errors}}
             tmp.write_text(
                 json.dumps({"digest": self.digest, "at": self.at, "results": self.results, "history": history,
-                            "errors": self.errors, "flaky": self.flaky}),
+                            "history_errors": history_errors, "errors": self.errors, "flaky": self.flaky}),
                 encoding="utf-8",
             )
             tmp.replace(self.path)
@@ -1416,6 +1510,10 @@ class EvalRunner:
         except Exception:
             return False
 
+    def _stale_dir(self) -> Path:
+        """Where work directories that could not be deleted are moved aside (_remove_tree)."""
+        return self._eval_base_dir() / ".stale"
+
     def _eval_base_dir(self) -> Path:
         """
         Resolve the writable eval base directory.
@@ -1831,7 +1929,7 @@ class EvalRunner:
                 target.mkdir(parents=True, exist_ok=True)
                 continue
             if canonical is not None and rel.as_posix() not in kit_only and self._canonical_is_newer(
-                item, canonical / rel, history / rel if history is not None else None
+                item, canonical / rel, history / rel if history is not None else None, by_mtime=take_canonical
             ):
                 if take_canonical:
                     target.parent.mkdir(parents=True, exist_ok=True)
@@ -2016,16 +2114,31 @@ class EvalRunner:
                 cache[key] = None
         return cache[key]
 
-    def _canonical_is_newer(self, kit_file: Path, canonical_file: Path, history_file: Optional[Path] = None) -> bool:
+    def _canonical_is_newer(
+        self, kit_file: Path, canonical_file: Path, history_file: Optional[Path] = None, by_mtime: bool = False
+    ) -> bool:
         """True when ``canonical_file`` differs from the KIT copy and was committed after it
-        (``history_file``: the KIT file in the project, when ``kit_file`` is a copy of it)."""
+        (``history_file``: the KIT file in the project, when ``kit_file`` is a copy of it).
+        ``by_mtime``: without commit history, the modification times decide (the promoted tests of a
+        regression); otherwise the KIT stays the source of truth."""
         try:
             if not canonical_file.is_file() or canonical_file.read_bytes() == kit_file.read_bytes():
                 return False
         except OSError:
             return False
         canonical_time, kit_time = self._commit_time(canonical_file), self._commit_time(history_file or kit_file)
-        return canonical_time is not None and kit_time is not None and canonical_time > kit_time
+        if canonical_time is not None and kit_time is not None and canonical_time != kit_time:
+            return canonical_time > kit_time
+        if not by_mtime:
+            return canonical_time is not None and kit_time is not None and canonical_time > kit_time
+        # the same commit for both (a first commit of a project that already had promoted REQs:
+        # cdl-pipeline) or no commit history: the files' own modification times
+        # (cdl-pipeline: the test REQ-003 reconciled and promoted lost to REQ-001's stale KIT copy in
+        # every later regression)
+        try:
+            return canonical_file.stat().st_mtime > (history_file or kit_file).stat().st_mtime
+        except OSError:
+            return False
 
     def _prepare_eval_overlay_workspace(
         self,
@@ -2051,7 +2164,7 @@ class EvalRunner:
         overlay = eval_root / "overlay" / "workspace"
 
         if overlay.exists():
-            shutil.rmtree(overlay)
+            _remove_tree(overlay, self._stale_dir())
         overlay.mkdir(parents=True, exist_ok=True)
 
         dependency_roots: List[str] = []
@@ -2624,7 +2737,7 @@ class EvalRunner:
 
         work_kit_root = work_root / kit_root.name
         if work_kit_root.exists():
-            shutil.rmtree(work_kit_root)
+            _remove_tree(work_kit_root, self._stale_dir())
 
         everywhere = _KIT_COPY_IGNORE
         # The solution profile (ci/SOLUTION_LTC.json at the project root, /finalize): the canonical
@@ -2671,7 +2784,7 @@ class EvalRunner:
 
                 dep_work = deps_root / dep_safe
                 if dep_work.exists():
-                    shutil.rmtree(dep_work)
+                    _remove_tree(dep_work, self._stale_dir())
 
                 shutil.copytree(
                     dep_kit,
@@ -2703,7 +2816,7 @@ class EvalRunner:
 
         try:
             if composed_root.exists():
-                shutil.rmtree(composed_root)
+                _remove_tree(composed_root, self._stale_dir())
             composed_root.mkdir(parents=True, exist_ok=True)
 
             for logical_root in ("src", "test", "tests"):
@@ -2778,7 +2891,7 @@ class EvalRunner:
                 if composed_logical_root.exists():
                     target_logical_root = work_kit_root / logical_root
                     if target_logical_root.exists():
-                        shutil.rmtree(target_logical_root)
+                        _remove_tree(target_logical_root, self._stale_dir())
                     shutil.copytree(
                         composed_logical_root,
                         target_logical_root,
@@ -2892,7 +3005,7 @@ class EvalRunner:
                 if link.is_symlink() or link.is_file():
                     link.unlink()
                 elif link.exists():
-                    shutil.rmtree(link)
+                    _remove_tree(link, self._stale_dir())
                 link.symlink_to(target, target_is_directory=True)
             except OSError:
                 try:
@@ -3380,6 +3493,10 @@ class EvalRunner:
         self._only_checks = {str(c) for c in (checks or []) if str(c).strip()} or None
         self._regression_only = {str(r).strip().upper() for r in (regression_reqs or []) if str(r).strip()} or None
         self._progress_start(req_id or (ltc or {}).get("req_id"), partial=bool(self._only_checks or self._regression_only))
+        started_at = time.monotonic()
+        self._checks_started_at: Optional[float] = None
+        self._regression_span: Optional[Tuple[float, float]] = None
+        self._regression_timings: Dict[str, float] = {}
         try:
             exhausted = sandbox_resources.preflight()
             if not exhausted and not self.eval_key:  # the top-level run, not a nested regression or service
@@ -3402,6 +3519,7 @@ class EvalRunner:
                 report.missing_tools = missing
             if not self.eval_key:
                 report.tools = eval_tools.installed_versions() or None
+                report.timings = self._timings(started_at)
             return report
         finally:
             cancelled = self.cancel_event is not None and self.cancel_event.is_set()
@@ -3409,6 +3527,22 @@ class EvalRunner:
             for svc in reversed(self._services):
                 eval_environment.stop_process(svc.proc)
             self._services = []
+
+    def _timings(self, started_at: float) -> Dict[str, Any]:
+        """Seconds spent in setup, the REQ's checks and the regression (each promoted REQ's own)."""
+        ended = time.monotonic()
+        checks_from = self._checks_started_at or ended
+        span = self._regression_span
+        out: Dict[str, Any] = {
+            "total_s": round(ended - started_at, 1),
+            "setup_s": round(checks_from - started_at, 1),
+            "checks_s": round((span[0] if span else ended) - checks_from, 1),
+        }
+        if span:
+            out["regression_s"] = round(span[1] - span[0], 1)
+            out["regression_workers"] = getattr(self, "_regression_workers_used", None)
+            out["regression_by_req"] = dict(self._regression_timings)
+        return out
 
     def _tools_catalog(self) -> Dict[str, Dict[str, Any]]:
         if getattr(self, "_catalog", None) is None:
@@ -4101,6 +4235,7 @@ class EvalRunner:
                     done.duration_s = round(now - stamp_at, 2)
 
         loop_from = len(out_cases)
+        self._checks_started_at = time.monotonic()
         self._progress(phase="checks", checks_total=len(norm_cases), checks_done=0)
         for case_index, case in enumerate(norm_cases):
             _stamp()
@@ -4297,6 +4432,7 @@ class EvalRunner:
         elif regression and work_kit_root and not cancelled:
             started = time.monotonic()
             out_cases.extend(self.run_regression(eff_req, work_kit_root / "src"))
+            self._regression_span = (started, time.monotonic())
             log.info("regression req=%s took %.1fs", eff_req, time.monotonic() - started)
 
         return self._report_from_cases(
@@ -4677,7 +4813,7 @@ class EvalRunner:
                 case.excerpt = f"{note}\n\n{case.excerpt or ''}"
                 log.info("regression %s::%s known unstable (nondeterministic before)", other, case.name)
                 continue
-            failed_at = baseline.failed_before(case.name)
+            failed_at = baseline.failed_before(case.name, case.excerpt)
             if case.name not in failing_without and failed_at and not case.name.startswith("env::"):
                 # it passes on the promoted tree now, but it failed there without any candidate on a
                 # recent promoted state: the check is unstable, its result proves nothing about this
@@ -4851,6 +4987,7 @@ class EvalRunner:
             return [case for other in others_all for case in (reused.get(other) or ran.get(other) or [])]
 
         workers = min(regression_workers(), len(others))
+        self._regression_workers_used = workers
         self._promoted_state_digest(req_id)  # once, before the workers share it
         self._progress(phase="regression", regression_total=len(others), regression_done=0, regression_current=[], current=None)
         if workers <= 1:
@@ -5026,9 +5163,13 @@ class EvalRunner:
     ) -> List[EvalCase]:
         """_regress_one, with the promoted REQ in the live progress while it runs."""
         self._progress_regression(other, started=True)
+        started = time.monotonic()
         try:
             return self._regress_one(req_id, other, candidate_src, superseded)
         finally:
+            timings = getattr(self, "_regression_timings", None)
+            if timings is not None:
+                timings[other] = round(time.monotonic() - started, 1)
             self._progress_regression(other, started=False)
 
     def _regress_one(

@@ -15,6 +15,42 @@
         "encoding": "utf-8",
         "mime": null,
         "path": "docs/harper/IDEA.md"
+      },
+      {
+        "content": "# Inputs\n\n## Changes\nFirst version\n\n| ID | Situation | Expected | Req |\n|---|---|---|---|\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n",
+        "encoding": "utf-8",
+        "mime": null,
+        "path": "docs/harper/inputs/REQUIREMENTS.md"
+      },
+      {
+        "content": "# Inputs\n\n## Changes\nFirst version\n\n| ID | Situation | Expected | Req |\n|---|---|---|---|\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n",
+        "encoding": "utf-8",
+        "mime": null,
+        "path": "docs/harper/inputs/EDGE_CASES.md"
+      },
+      {
+        "content": "# Inputs\n\n## Changes\nFirst version\n\n| ID | Situation | Expected | Req |\n|---|---|---|---|\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n",
+        "encoding": "utf-8",
+        "mime": null,
+        "path": "docs/harper/inputs/JOURNEYS.md"
+      },
+      {
+        "content": "# Inputs\n\n## Changes\nFirst version\n\n| ID | Situation | Expected | Req |\n|---|---|---|---|\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n",
+        "encoding": "utf-8",
+        "mime": null,
+        "path": "docs/harper/inputs/TEST_SCENARIOS.md"
+      },
+      {
+        "content": "# Inputs\n\n## Changes\nFirst version\n\n| ID | Situation | Expected | Req |\n|---|---|---|---|\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n",
+        "encoding": "utf-8",
+        "mime": null,
+        "path": "docs/harper/inputs/DECISIONS.md"
+      },
+      {
+        "content": "# Inputs\n\n## Changes\nFirst version\n\n| ID | Situation | Expected | Req |\n|---|---|---|---|\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n",
+        "encoding": "utf-8",
+        "mime": null,
+        "path": "docs/harper/inputs/COVERAGE.md"
       }
     ],
     "ok": true,
@@ -33,7 +69,8 @@
   },
   "request": {
     "allowed_write_roots": [
-      "docs/harper/IDEA.md"
+      "docs/harper/IDEA.md",
+      "docs/harper/inputs/"
     ],
     "available_capabilities": null,
     "capability_metadata": null,
@@ -44,6 +81,30 @@
       {
         "content": "# IDEA — Demo Project\n\n## Vision\nDeliver a measurable first slice that proves the product value to early users.\n\n## Problem Statement\nOperators waste time reconciling data manually every morning before reporting.\n\n## Target Users & Context\nPrimary users are operations analysts working inside the internal back office.\n\n## Value & Outcomes\nReduce reconciliation time and surface anomalies earlier in the daily workflow.\n\n## Out of Scope\nMobile clients and third-party marketplace integrations are deferred past slice 1.\n\n## Technology Constraints\n```yaml\ntech_constraints:\n  version: 1\n  classification:\n    solution_type: unknown\n```\n\n## Risks & Assumptions\nWe assume source exports remain CSV; data volume risk is tracked as an assumption.\n\n## Success Metrics\nTime-to-first-reconciliation under five minutes for the initial pilot cohort.\n",
         "path": "docs/harper/IDEA.md"
+      },
+      {
+        "content": "# Inputs\n\n## Changes\nFirst version\n\n| ID | Situation | Expected | Req |\n|---|---|---|---|\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n",
+        "path": "docs/harper/inputs/REQUIREMENTS.md"
+      },
+      {
+        "content": "# Inputs\n\n## Changes\nFirst version\n\n| ID | Situation | Expected | Req |\n|---|---|---|---|\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n",
+        "path": "docs/harper/inputs/EDGE_CASES.md"
+      },
+      {
+        "content": "# Inputs\n\n## Changes\nFirst version\n\n| ID | Situation | Expected | Req |\n|---|---|---|---|\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n",
+        "path": "docs/harper/inputs/JOURNEYS.md"
+      },
+      {
+        "content": "# Inputs\n\n## Changes\nFirst version\n\n| ID | Situation | Expected | Req |\n|---|---|---|---|\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n",
+        "path": "docs/harper/inputs/TEST_SCENARIOS.md"
+      },
+      {
+        "content": "# Inputs\n\n## Changes\nFirst version\n\n| ID | Situation | Expected | Req |\n|---|---|---|---|\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n",
+        "path": "docs/harper/inputs/DECISIONS.md"
+      },
+      {
+        "content": "# Inputs\n\n## Changes\nFirst version\n\n| ID | Situation | Expected | Req |\n|---|---|---|---|\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n| FR-ING-01 | Empty file | Rejected: \"empty file\", nothing written | EC-FIL-01 |\n",
+        "path": "docs/harper/inputs/COVERAGE.md"
       }
     ],
     "forbidden_paths": [
