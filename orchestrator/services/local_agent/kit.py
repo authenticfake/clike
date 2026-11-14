@@ -228,12 +228,13 @@ def kit_eval_check_rules(eval_check: Dict[str, Any]) -> List[str]:
         ("Write docs/ACCEPTANCE.json from that run: a criterion is done when its blocking checks passed in the eval sandbox. "
          "A check your own sandbox could not run is not a reason for partial; partial / missing means work left in the code."),
         *([(
-            "Last, once your checks pass, run once `" + eval_check["command"] + " "
+            "The first time your checks all pass, CLike also runs in that same run the regression of the promoted REQs "
+            "with your KIT overlaid (`regression::` checks), as the eval runs it (a few minutes more); two runs beyond "
+            "the limit are kept for it. A failure there is a promoted REQ your change breaks (a shared file, a contract, "
+            "a migration, a new dependency's warnings): fix your code, or the shared file keeping what that REQ put "
+            "there, never weaken their tests; then confirm with `" + eval_check["command"] + " "
             + " ".join(f"regression::{r}" for r in eval_check["regression"])
-            + "`: your checks plus the regression of the promoted REQs with your KIT overlaid, as the eval runs it "
-            "(a few minutes more). A failure there is a promoted REQ your change breaks (a shared file, a contract, a "
-            "migration): fix your code, or the shared file keeping what that REQ put there; never weaken their tests. "
-            "A failure the result marks non-blocking is not yours to fix."
+            + "`. A failure the result marks non-blocking is not yours to fix."
         )] if eval_check.get("regression") else []),
     ]
 

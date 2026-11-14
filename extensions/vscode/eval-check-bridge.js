@@ -58,6 +58,7 @@ while (Date.now() < deadline) {
       console.log(\`\${c.passed ? 'PASS' : c.blocked ? 'BLOCKED' : c.blocking === false ? 'WARN' : 'FAIL'} \${c.name}\${c.passed ? '' : \` (exit \${c.code})\`}\${c.note ? \` — \${c.note}\` : ''}\`);
       if (!c.passed && c.errors) console.log(c.errors.replace(/^/gm, '    '));
     }
+    if (r.note) console.log(\`NOTE: \${r.note}\`);
     console.log(\`Result: \${r.status}\`);
     if (r.done) console.log(\`DONE: \${r.done}\`);
     process.exit(r.status === 'PASS' ? 0 : 1);
@@ -144,11 +145,30 @@ function writeAtomic(file, text) {
   fs.renameSync(tmp, file);
 }
 
+// Runs kept beyond maxRuns for the regression of the promoted REQs: to see it and to confirm a fix.
+const REGRESSION_EXTRA_RUNS = 2;
+
+/** Two compact results as one: the checks of both, FAIL when either fails. */
+function mergeResults(own, regression, note) {
+  const both = [own.status, regression.status];
+  const status = both.includes('BLOCKED') ? 'BLOCKED' : both.includes('FAIL') ? 'FAIL' : 'PASS';
+  const out = { ...own, ...(regression.error ? { error: regression.error } : {}), status, checks: [...(own.checks || []), ...(regression.checks || [])], note };
+  if (status !== 'PASS') delete out.done;
+  return out;
+}
+
 /**
  * Serve eval-check requests of a local agent until stop().
  * runChecks(checks: string[]) → eval report (the orchestrator /v1/eval/run payload).
+ * regression: the promoted REQs of a KIT. Their regression runs whatever the agent counts: once its
+ * checks first pass CLike adds it to that run, and REGRESSION_EXTRA_RUNS runs beyond maxRuns are kept
+ * for runs with it (cdl-pipeline REQ-010: the agent spent its 6 runs on its own checks, never ran the
+ * regression, and the eval found a promoted REQ broken by a new dependency: a repair).
  */
-function startEvalCheckBridge({ workspaceRoot, runChecks, maxRuns = 8, pollMs = 1000, log = () => {}, testRoot = '', targets = [] }) {
+function startEvalCheckBridge({ workspaceRoot, runChecks, maxRuns = 8, pollMs = 1000, log = () => {}, testRoot = '', targets = [], regression = [] }) {
+  const regressionChecks = (Array.isArray(regression) ? regression : []).map((r) => `regression::${r}`).filter((c) => CHECK_NAME.test(c));
+  let regressionRan = false;
+  let extraRuns = 0;
   const testsBefore = snapshotTests(testRoot ? path.join(workspaceRoot, testRoot) : '');
   const dir = path.join(workspaceRoot, CHANNEL_DIR);
   const helper = path.join(workspaceRoot, HELPER_PATH);
@@ -180,13 +200,27 @@ function startEvalCheckBridge({ workspaceRoot, runChecks, maxRuns = 8, pollMs = 
       const checks = (Array.isArray(request?.checks) ? request.checks : []).map(String).filter((c) => CHECK_NAME.test(c)).slice(0, 60);  // a KIT's last run names every promoted REQ
       if (!request) {
         result = { status: 'ERROR', error: 'invalid request' };
-      } else if (runs >= maxRuns) {
+      } else if (runs >= maxRuns && !(regressionChecks.length && extraRuns < REGRESSION_EXTRA_RUNS)) {
         result = { status: 'LIMIT', error: `eval-check run limit reached (${maxRuns}); finish with what you have, CLike runs the full eval next` };
       } else {
-        runs += 1;
-        log(`[evalCheck] run ${runs}/${maxRuns}: ${checks.join(' ') || 'all checks'}`);
+        // beyond the limit: only runs with the regression, which is added when the request lacks it
+        const extra = runs >= maxRuns;
+        const run = extra && !checks.some((c) => c.startsWith('regression::')) ? [...checks, ...regressionChecks] : checks;
+        if (extra) extraRuns += 1; else runs += 1;
+        const withRegression = run.some((c) => c.startsWith('regression::'));
+        log(`[evalCheck] run ${runs + extraRuns}/${maxRuns}${extra ? ' (kept for the regression)' : ''}: ${run.join(' ') || 'all checks'}`);
         try {
-          result = compactResult(await runChecks(checks), targets);
+          result = compactResult(await runChecks(run), targets);
+          if (withRegression) regressionRan = true;
+          // the agent's checks pass and the regression never ran: it runs now, in this same run
+          if (!regressionRan && regressionChecks.length && result.status === 'PASS') {
+            regressionRan = true;
+            log(`[evalCheck] checks pass: the regression of the promoted REQs follows (${regressionChecks.join(' ')})`);
+            result = mergeResults(result, compactResult(await runChecks(regressionChecks), []),
+              'Your checks pass, so CLike also ran the regression of the promoted REQs with your KIT overlaid (regression:: checks). ' +
+              `A failure there is a promoted REQ your change breaks: fix it, then confirm with \`${regressionChecks.join(' ')}\`.`);
+          }
+          if (extra) result.note = `${result.note ? `${result.note} ` : ''}This run was one of the ${REGRESSION_EXTRA_RUNS} CLike keeps for the regression after the limit (${REGRESSION_EXTRA_RUNS - extraRuns} left).`;
           const touched = changedTests(testsBefore, workspaceRoot);
           if (touched.length) result.warning = LOCKED_TESTS_WARNING.replace('%s', touched.join(', '));
         } catch (e) {
@@ -232,7 +266,9 @@ const MINUTES_PER_EVAL_CHECK = 6;
 function agentTimeoutMinutes(baseMinutes, evalCheck) {
   const base = Math.max(1, Math.ceil(Number(baseMinutes) || 30));
   const runs = evalCheck ? Math.max(0, Number(evalCheck.max_runs ?? 8)) : 0;
-  return base + runs * MINUTES_PER_EVAL_CHECK;
+  // the regression CLike adds once the checks pass, and the runs kept for it after the limit
+  const regression = runs && Array.isArray(evalCheck.regression) && evalCheck.regression.length ? 1 + REGRESSION_EXTRA_RUNS : 0;
+  return base + (runs + regression) * MINUTES_PER_EVAL_CHECK;
 }
 
 module.exports = { CHANNEL_DIR, HELPER_PATH, agentArgsForEvalCheck, agentTimeoutMinutes, compactResult, startEvalCheckBridge };

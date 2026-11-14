@@ -1279,6 +1279,7 @@ async function executeLocalAgentPackage({
       runChecks: (checks) => postEvalChecks(evalCheck.profile, wsroot, reqForAgent, checks, { agentCheck: true }),
       log,
       targets: Array.isArray(evalCheck.targets) ? evalCheck.targets : [],
+      regression: Array.isArray(evalCheck.regression) ? evalCheck.regression : [],
       // a repair's changes to existing (locked) tests are governed after the run: the agent is told
       // (a KIT being written has no locked tests yet, unless acceptance-first locked them)
       ...(phaseForAgent === 'kit' && reqForAgent && (evalCheck.stage !== 'kit' || evalCheck.locked) ? { testRoot: `runs/kit/${reqForAgent}/test` } : {}),
