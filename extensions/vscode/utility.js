@@ -1194,6 +1194,8 @@ async function persistReports(projectRootUri, phase, rep, out, fallbackReqId = '
       reason_code: rep.reason_code || undefined,
       tools: rep.tools && Object.keys(rep.tools).length ? rep.tools : undefined,
       missing_tools: Array.isArray(rep.missing_tools) && rep.missing_tools.length ? rep.missing_tools : undefined,
+      // where the eval spent its time (setup, own checks, regression per promoted REQ)
+      timings: rep.timings && typeof rep.timings === 'object' ? rep.timings : undefined,
       passed,
       failed,
       passed_count: rep.passed_count,
@@ -3049,6 +3051,7 @@ module.exports = {
   runLocalAgentSync,
   terminateActiveAgents,
   runEvalGateCommand,
+  persistReports,
   saveKitCommand,
   saveGateCommand,
   saveEvalCommand,
