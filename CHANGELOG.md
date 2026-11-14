@@ -4,6 +4,8 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+## [1.8.1] — 2026-11-14 — A plan with its stack
+
 ### Changed
 
 - `clike.plan.capacityProfile` defaults to `C2` (REQs sized as vertical slices for a coding agent),
