@@ -1196,6 +1196,9 @@ class HarperKitOptions(BaseModel):
     repair: Optional[Union[Dict[str, Any], bool]] = Field(default=None)
     # Code-only KIT after the acceptance stage (tests and LTC already locked).
     acceptance_first: Optional[bool] = Field(default=None)
+    # Local agent: run the KIT's checks in the eval sandbox before finishing (eval-check bridge).
+    eval_check: Optional[bool] = Field(default=None)
+    eval_check_max_runs: Optional[int] = Field(default=None, ge=1, le=20)
 
 class HarperRunRequest(BaseModel):
     project_id: Optional[str] = None

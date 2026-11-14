@@ -584,3 +584,10 @@ def test_kit_eval_check_is_not_offered_to_the_acceptance_stage_nor_doubled_in_a_
     stage, _title, rules = _kit_stage("REQ-001", repair, context)
     assert stage == "repair"
     assert sum("eval-check.mjs" in rule for rule in rules) == 1
+
+
+def test_kit_options_schema_keeps_the_eval_check_request():
+    from schemas.harper import HarperKitOptions
+
+    kit = HarperKitOptions(targets=["REQ-002"], eval_check=True, eval_check_max_runs=4).model_dump(exclude_none=True)
+    assert (kit["eval_check"], kit["eval_check_max_runs"]) == (True, 4)
