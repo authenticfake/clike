@@ -31,6 +31,8 @@ local_agent:
   - docs/harper/IDEA.md must start with `# IDEA — <Project Name>`.
   - 'Use the canonical IDEA schema headings exactly once and in order: Vision, Problem Statement, Target Users & Context, Value & Outcomes, Out of Scope, Technology Constraints, Risks & Assumptions, Success Metrics.'
   - Technology Constraints must contain exactly one valid fenced YAML block.
+  - 'The Technology Constraints YAML is rooted at `tech_constraints:` (version, metadata, classification, project_definition with architecture, backend, frontend, database and package managers, identity, integrations, lanes, assumptions, evaluation): /spec writes it to docs/harper/TECH_CONSTRAINTS.yaml, which every later phase follows. A stack, framework, database or architecture the sources state or decide is evidence: write it as a constraint, not as a proposal; only what the sources leave open is `unknown` or an assumption.'
+  - 'An existing docs/harper/TECH_CONSTRAINTS.yaml without a `tech_constraints:` root (the placeholder /init writes) holds no decision: do not treat it as the canonical source and do not defer to it.'
   - Use ONLY the current-run attachments listed in this package and the project context sources as /idea source material.
   - 'Do not read or reuse stale workspace files: do not read ORI.IDEA.md, prior IDEA* variants, stale .clike/uploads files, or prior-session files unless they are explicitly listed in the current attachment manifest.'
   - Treat any existing docs/harper/IDEA.md only as the overwrite target, never as a source of truth.
@@ -59,7 +61,7 @@ local_agent:
   - '- ## Target Users & Context'
   - '- ## Value & Outcomes'
   - '- ## Out of Scope'
-  - '- ## Technology Constraints (exactly one valid fenced YAML block)'
+  - '- ## Technology Constraints (exactly one valid fenced YAML block rooted at `tech_constraints:`; /spec writes it to TECH_CONSTRAINTS.yaml)'
   - '- ## Risks & Assumptions'
   - '- ## Success Metrics'
   - ''

@@ -130,8 +130,13 @@ Validator-compatible aliases may be accepted downstream, but prefer the stable h
 - List explicit exclusions and deferred work for the first slice.
 
 `## Technology Constraints`
-- Include one valid fenced YAML block under this heading.
-- Use only constraints supported by attachments, chat, repository evidence, or explicit assumptions.
+- Include one valid fenced YAML block under this heading, rooted at `tech_constraints:`: /spec writes it to
+  `docs/harper/TECH_CONSTRAINTS.yaml`, which every later phase follows.
+- Use only constraints supported by attachments, chat, repository evidence, or explicit assumptions. A
+  stack, framework, database or architecture the sources state or decide is evidence: write it as a
+  constraint, not as a proposal.
+- An existing `TECH_CONSTRAINTS.yaml` without a `tech_constraints:` root is the /init placeholder: it
+  holds no decision.
 - Do not copy placeholder providers, endpoints, project keys, or framework choices.
 - Keep YAML compact. Unknown is acceptable when evidence is missing.
 

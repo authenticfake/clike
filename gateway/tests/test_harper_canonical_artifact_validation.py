@@ -636,3 +636,15 @@ def test_an_idea_may_add_further_project_inputs_like_the_local_agents():
     files += [{"path": "docs/harper/inputs/GLOSSARY.md", "content": INPUT_BODY}]
     canonical = validation.validate_canonical_harper_files(files, evidence_text=NATIVE_IDEA)
     assert contracts.validate_files_against_active_output_contract(canonical["accepted_files"], contract)["ok"] is True
+
+
+def test_idea_technology_constraints_must_be_rooted_at_tech_constraints():
+    # lead-generation: /idea wrote the stack as a "proposal" under other keys, /spec found no
+    # `tech_constraints:` block and TECH_CONSTRAINTS.yaml stayed the /init placeholder
+    start = NATIVE_IDEA.index("```yaml")
+    end = NATIVE_IDEA.index("```", start + 7)
+    unrooted = NATIVE_IDEA[:start] + "```yaml\ncanonical_source: docs/harper/TECH_CONSTRAINTS.yaml\nsource_proposal:\n  status: proposed_not_activated\n" + NATIVE_IDEA[end:]
+    result = validation.validateIdeaMarkdown(unrooted, evidence_text=unrooted)
+    assert result["ok"] is False
+    assert "technology_constraints_yaml_without_tech_constraints_root" in result["failed_checks"]
+    assert "tech_constraints:" in NATIVE_IDEA[start:end]  # the good fixture is rooted

@@ -112,6 +112,9 @@ function validateIdeaMarkdown(content, opts = {}) {
   const techSection = sectionAfter(text, '## Technology Constraints') || sectionAfter(text, '## Technology Constraints (SPEC-ready)');
   if (!/^```ya?ml\s*$/im.test(techSection)) {
     failures.push('missing_fenced_yaml_after_technology_constraints');
+  } else if (!/^tech_constraints\s*:/m.test((techSection.match(/^```ya?ml\s*$([\s\S]*?)^```/im) || [])[1] || '')) {
+    // /spec writes this block to TECH_CONSTRAINTS.yaml: without the root key nothing is written
+    failures.push('technology_constraints_yaml_without_tech_constraints_root');
   }
   if (!/^\s*##\s+.*success metrics/im.test(text)) {
     failures.push('missing_success_metrics_section');

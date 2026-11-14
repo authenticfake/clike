@@ -480,6 +480,13 @@ def _validate_document_phase_completeness(
         if not re.search(r"^```ya?ml\s*$", content, re.IGNORECASE | re.MULTILINE):
             incomplete = True
             warnings.append("idea:missing_fenced_yaml_under_technology_constraints")
+        else:
+            # /spec writes the block to TECH_CONSTRAINTS.yaml only when it is rooted at `tech_constraints:`
+            tech = _markdown_section_body(content, ["## Technology Constraints", "## Technology Constraints (SPEC-ready)"]) or ""
+            fence = re.search(r"^```ya?ml\s*$(.*?)^```", tech, re.IGNORECASE | re.MULTILINE | re.DOTALL)
+            if not (fence and re.search(r"^tech_constraints\s*:", fence.group(1), re.MULTILINE)):
+                incomplete = True
+                warnings.append("idea:technology_constraints_yaml_without_tech_constraints_root")
         # the project inputs: present, with IDs (an empty or ID-less catalogue is no input for /spec)
         for path in INPUT_PATHS:
             text = content_by_path.get(path, "") or ""
