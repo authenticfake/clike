@@ -364,6 +364,73 @@ class WorkspaceCopyTests(unittest.TestCase):
             self.assertTrue(case.blocked)
             self.assertIn("nothing to repair", case.stderr)
 
+    @staticmethod
+    def _undeletable(name):
+        """os.unlink failing on `name`, as a file the eval sandbox wrote before a rebuild (another
+        container's private SELinux label: EACCES on unlink although owner and mode allow it)."""
+        real = eval_runner.os.unlink
+
+        def unlink(path, *args, **kwargs):
+            if str(path).endswith(name):
+                raise PermissionError(13, "Permission denied", str(path))
+            return real(path, *args, **kwargs)
+        return patch.object(eval_runner.os, "unlink", side_effect=unlink)
+
+    def test_a_work_tree_with_an_undeletable_file_is_moved_aside_and_cleared_later(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work, trash = Path(tmp) / "work" / "REQ-001", Path(tmp) / ".stale"
+            dist = work / "ci" / "local-eval-workspaces" / "build-x" / "dist"
+            dist.mkdir(parents=True)
+            (dist / "app.whl").write_text("wheel")
+            (work / "app.py").write_text("x = 1\n")
+            with self._undeletable("app.whl"):
+                eval_runner._remove_tree(work, trash)
+            self.assertFalse(work.exists())
+            self.assertEqual([p.name for p in trash.rglob("app.whl")], ["app.whl"])
+            # the next removal (the file deletable again: the container that wrote it) empties the trash
+            work.mkdir(parents=True)
+            eval_runner._remove_tree(work, trash)
+            self.assertFalse(work.exists())
+            self.assertFalse(trash.exists())
+
+    def test_a_read_only_tree_a_check_left_is_removed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work = Path(tmp) / "work"
+            (work / "cache").mkdir(parents=True)
+            (work / "cache" / "mod.py").write_text("")
+            (work / "cache").chmod(0o500)
+            try:
+                eval_runner._remove_tree(work, Path(tmp) / ".stale")
+            finally:
+                if (work / "cache").exists():
+                    (work / "cache").chmod(0o700)
+            self.assertFalse(work.exists())
+            self.assertFalse((Path(tmp) / ".stale").exists())
+
+    def test_an_eval_after_a_rebuild_composes_its_workspace_over_undeletable_leftovers(self):
+        # cdl-pipeline REQ-009: the KIT's run built REQ-001's wheel at 12:10, the stack was rebuilt,
+        # the eval at 14:09 blocked on prepare-workspace (Permission denied on the old dist)
+        with tempfile.TemporaryDirectory() as tmp:
+            root, base = Path(tmp) / "proj", Path(tmp) / "evalbase"
+            kit = root / "runs" / "kit" / "REQ-001"
+            (kit / "ci").mkdir(parents=True)
+            base.mkdir()
+            ltc = {"req_id": "REQ-001", "checks": [{"id": "unit", "command": "true"}]}
+            (kit / "ci" / "LTC.json").write_text(json.dumps(ltc))
+            with patch.dict("os.environ", {"CLIKE_EVAL_ROOT": str(base)}):
+                runner = EvalRunner(root)
+                self.assertEqual(runner.run_profile(profile=str(kit / "ci" / "LTC.json"), ltc=ltc, req_id="REQ-001").status, "PASS")
+                works = [p for p in base.rglob("REQ-001") if p.parent.name == "work"]
+                self.assertTrue(works)
+                dist = works[0] / "ci" / "local-eval-workspaces" / "cdl-req001-build" / "dist"
+                dist.mkdir(parents=True)
+                (dist / "cdl.whl").write_text("wheel")
+                with self._undeletable("cdl.whl"):
+                    report = runner.run_profile(profile=str(kit / "ci" / "LTC.json"), ltc=ltc, req_id="REQ-001")
+            self.assertEqual(report.status, "PASS", [c.stderr for c in report.cases])
+            self.assertFalse(dist.exists())
+            self.assertTrue(list(base.rglob(".stale/*/ci/local-eval-workspaces/cdl-req001-build/dist/cdl.whl")))
+
 
 if __name__ == "__main__":
     unittest.main()

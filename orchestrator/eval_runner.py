@@ -71,6 +71,34 @@ def _scenario_id_pattern(sid: str) -> "re.Pattern[str]":
     )
 
 
+def _remove_tree(path: Path, trash: Path) -> None:
+    """Remove a work directory an earlier run left, never failing the eval on it.
+
+    What cannot be deleted is moved aside into `trash` (same volume), so the workspace is always
+    composed fresh: a file the eval sandbox wrote before a rebuild keeps that container's private
+    SELinux label (a wheel built in /tmp, then moved into the work tree) and the new container may
+    not unlink it (cdl-pipeline REQ-009: prepare-workspace blocked on REQ-001's build output); a
+    read-only tree a check left gets its owner permissions back first.
+    """
+    def _retry_writable(func, target, _exc):
+        try:
+            os.chmod(os.path.dirname(target), 0o700)
+            func(target)
+        except OSError:
+            pass
+
+    # what earlier runs moved aside and can be deleted now (by the container that wrote it, perms)
+    if trash.exists():
+        shutil.rmtree(trash, ignore_errors=True)
+    shutil.rmtree(path, onexc=_retry_writable)
+    if not os.path.lexists(path):
+        return
+    trash.mkdir(parents=True, exist_ok=True)
+    aside = trash / f"{path.name}-{time.time_ns():x}"
+    os.rename(path, aside)
+    log.warning("eval work directory %s could not be deleted: moved aside to %s", path, aside)
+
+
 @dataclass
 class EvalCase:
     name: str
@@ -1482,6 +1510,10 @@ class EvalRunner:
         except Exception:
             return False
 
+    def _stale_dir(self) -> Path:
+        """Where work directories that could not be deleted are moved aside (_remove_tree)."""
+        return self._eval_base_dir() / ".stale"
+
     def _eval_base_dir(self) -> Path:
         """
         Resolve the writable eval base directory.
@@ -2132,7 +2164,7 @@ class EvalRunner:
         overlay = eval_root / "overlay" / "workspace"
 
         if overlay.exists():
-            shutil.rmtree(overlay)
+            _remove_tree(overlay, self._stale_dir())
         overlay.mkdir(parents=True, exist_ok=True)
 
         dependency_roots: List[str] = []
@@ -2705,7 +2737,7 @@ class EvalRunner:
 
         work_kit_root = work_root / kit_root.name
         if work_kit_root.exists():
-            shutil.rmtree(work_kit_root)
+            _remove_tree(work_kit_root, self._stale_dir())
 
         everywhere = _KIT_COPY_IGNORE
         # The solution profile (ci/SOLUTION_LTC.json at the project root, /finalize): the canonical
@@ -2752,7 +2784,7 @@ class EvalRunner:
 
                 dep_work = deps_root / dep_safe
                 if dep_work.exists():
-                    shutil.rmtree(dep_work)
+                    _remove_tree(dep_work, self._stale_dir())
 
                 shutil.copytree(
                     dep_kit,
@@ -2784,7 +2816,7 @@ class EvalRunner:
 
         try:
             if composed_root.exists():
-                shutil.rmtree(composed_root)
+                _remove_tree(composed_root, self._stale_dir())
             composed_root.mkdir(parents=True, exist_ok=True)
 
             for logical_root in ("src", "test", "tests"):
@@ -2859,7 +2891,7 @@ class EvalRunner:
                 if composed_logical_root.exists():
                     target_logical_root = work_kit_root / logical_root
                     if target_logical_root.exists():
-                        shutil.rmtree(target_logical_root)
+                        _remove_tree(target_logical_root, self._stale_dir())
                     shutil.copytree(
                         composed_logical_root,
                         target_logical_root,
@@ -2973,7 +3005,7 @@ class EvalRunner:
                 if link.is_symlink() or link.is_file():
                     link.unlink()
                 elif link.exists():
-                    shutil.rmtree(link)
+                    _remove_tree(link, self._stale_dir())
                 link.symlink_to(target, target_is_directory=True)
             except OSError:
                 try:

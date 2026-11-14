@@ -143,12 +143,16 @@ function missingTools(report) {
     `Install ${names.length > 1 ? 'them' : 'it'} with \`/tools add ${names.join(' ')}\` (or answer Install when asked) and run again.`;
 }
 
-// CLike could not compose the eval workspace (copying the KIT and the canonical tree): no check
-// ran, so there is nothing for a repair to see; the cause is outside the code.
+// CLike could not compose the eval workspace (copying the KIT and the canonical tree), of the REQ
+// or of a promoted REQ's regression (`regression::REQ-001::env::prepare-workspace`): those checks
+// did not run, so there is nothing for a repair to see; the cause is outside the code
+// (cdl-pipeline REQ-009: a repair ran for a regression workspace CLike could not compose).
 function workspaceNotPrepared(report) {
-  const c = (Array.isArray(report?.cases) ? report.cases : []).find((x) => x && !x.passed && x.name === 'env::prepare-workspace');
+  const c = (Array.isArray(report?.cases) ? report.cases : [])
+    .find((x) => x && !x.passed && /(^|::)env::prepare-workspace$/.test(String(x.name || '')));
   if (!c) return null;
-  return 'CLike could not prepare the eval workspace (no check ran, nothing to repair): ' +
+  const of = String(c.name).match(/^regression::([^:]+)::/);
+  return `CLike could not prepare the eval workspace${of ? ` of ${of[1]}'s regression` : ''} (those checks did not run, nothing to repair): ` +
     `${String(c.stderr || '').split('\n')[0].slice(0, 400)}. Check that nothing is writing into runs/kit/ and run again.`;
 }
 
