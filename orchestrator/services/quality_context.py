@@ -16,6 +16,7 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from services import design_systems
 from services.capabilities import _extract_frontmatter
 
 SCENARIO_LINE = re.compile(
@@ -381,12 +382,34 @@ def build_quality_context(
     profile = resolve_capacity_profile(payload, execution_mode)
     text = ""
     scenarios: List[str] = []
+    design = None
     if lphase == "spec" and catalog:
         text = _spec_block(catalog)
     elif lphase in {"plan", "extend"}:
-        text = _plan_block(catalog, profile, payload)
+        design = design_systems.resolve(_tech_constraints_text(core_blobs, workspace_root), workspace_root)
+        text = _join(_plan_block(catalog, profile, payload), "\n".join(design_systems.plan_lines(design)))
     elif lphase in {"kit", "acceptance", "eval"} and req_id:
         req = _plan_req(core_blobs, workspace_root, req_id)
         scenarios = req_scenarios(req)
         text = _kit_block(catalog, req, req_id, _idiom_texts(core_blobs, workspace_root))
-    return {"phase": lphase, "profile": profile, "scenarios": scenarios, "text": text}
+        if lphase != "eval" and design_systems.has_ui(req):
+            # the visual foundation of a UI REQ: the design system of the solution, the same for every executor
+            design = design_systems.resolve(_tech_constraints_text(core_blobs, workspace_root), workspace_root)
+            text = _join(text, "\n".join(design_systems.kit_lines(design, req_id)).rstrip())
+    return {"phase": lphase, "profile": profile, "scenarios": scenarios, "text": text,
+            **({"design_system": design["id"]} if design and design["id"] != design_systems.NONE else {})}
+
+
+def _join(*parts: str) -> str:
+    return "\n\n".join(p for p in parts if p)
+
+
+def _tech_constraints_text(core_blobs: Dict[str, Any], workspace_root: Optional[Path]) -> str:
+    text = next((str(v) for k, v in (core_blobs or {}).items()
+                 if str(k).replace("\\", "/").rsplit("/", 1)[-1] == "TECH_CONSTRAINTS.yaml"), "")
+    if not text and workspace_root is not None:
+        try:
+            text = (Path(workspace_root) / "docs" / "harper" / "TECH_CONSTRAINTS.yaml").read_text(encoding="utf-8")
+        except OSError:
+            text = ""
+    return text

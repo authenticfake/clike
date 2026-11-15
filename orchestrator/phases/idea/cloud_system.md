@@ -137,6 +137,7 @@ Validator-compatible aliases may be accepted downstream, but prefer the stable h
   constraint, not as a proposal.
 - An existing `TECH_CONSTRAINTS.yaml` without a `tech_constraints:` root is the /init placeholder: it
   holds no decision.
+- When the solution has a user interface, `ui.design_system` names its design system: the one the sources name (shadcn-ui, fluent2, carbon, mui, antd, a company design system) or, when they name none, shadcn-ui (CLike's default, marked as an assumption).
 - Do not copy placeholder providers, endpoints, project keys, or framework choices.
 - Keep YAML compact. Unknown is acceptable when evidence is missing.
 
@@ -164,6 +165,8 @@ tech_constraints:
     solution_type: "evidenced type or unknown"
     deployment_context: "evidenced context or unknown"
     data_sensitivity: "evidenced sensitivity or unknown"
+  ui:
+    design_system: "evidenced design system, or shadcn-ui as a labeled assumption"
   assumptions:
     - "explicitly labeled assumption when needed"
   evaluation:

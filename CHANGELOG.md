@@ -4,6 +4,18 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+### Added
+
+- UI design systems: a solution with a user interface is built with a design system, chosen in
+  `TECH_CONSTRAINTS.yaml` (`tech_constraints.ui.design_system`): **shadcn/ui by default**, or Fluent 2, IBM Carbon,
+  MUI, Ant Design, `none`, or the project's own (`.clike/design-systems/<id>.md`, which also overrides a bundled
+  guide). `/plan` and `/idea --extend` get the rule (the first UI REQ sets it up and owns it as a seam; UI lane
+  guides name it), and the KIT of every REQ with a UI gets the whole guide (setup, theme tokens, app shell,
+  component by need, rules, verification) — the same text for the cloud and the local agents. `/idea` records the
+  design system the sources name, else shadcn/ui as an assumption; the `/init` placeholder shows the key. Before,
+  the design profiles said how a UI behaves but not how it looks, and a KIT wrote a few lines of CSS. See
+  `docs/design-systems.md`.
+
 ## [1.8.5] — 2026-11-15 — No silent waits
 
 ### Fixed
