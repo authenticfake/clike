@@ -350,11 +350,12 @@ passed has nothing to regress from.
 
 A candidate may carry its own version of a promoted REQ's test file (a shared test it extends): the
 regression runs that version and lists it (`regression::<REQ>::reconciled-tests`, a warning to
-review). It may **add** to the test, never relax it: when an assertion line of the delivered version
-is missing or rewritten in the candidate's (`==` relaxed to `<=`, an expectation dropped), the
+review). It may change or extend the test, never relax it: when an assertion of the delivered version
+is removed, loosened (`==` to `<=`, `toEqual` to `toContain`) or newly skipped in the candidate's, the
 regression blocks (`regression::<REQ>::reconciled-tests-assertions`) with the lines and the remedy —
 make the product satisfy the test, or declare the change (`/eval <REQ> --supersede REQ-x#path::name`,
-or `supersedes` from `/idea --extend`), which lifts the block for that file.
+or `supersedes` from `/idea --extend`), which lifts the block for that file. A changed value or a
+longer expected list stays strict: only the warning.
 
 A MODIFIED REQ that changes a **default behind a setting** and keeps the old behavior selectable (a
 new default UI theme, the release 1 one by configuration) declares the setting its regression runs

@@ -509,9 +509,19 @@ class ChangedAssertionTests(_RegressionProject):
         from eval_runner import changed_assertions
 
         self.assertEqual(changed_assertions("x = 1\n    assert a == b\n", "x = 2\nassert  a == b\nassert c\n"), [])
-        self.assertEqual(changed_assertions("await expect(page.getByText('A')).toBeVisible();\n", "await page.goto('/');\n"),
-                         ["await expect(page.getByText('A')).toBeVisible();"])
-        self.assertEqual(changed_assertions("self.assertEqual(a, 1)\n", "self.assertTrue(a)\n"), ["self.assertEqual(a, 1)"])
+        # a value the release changes, a longer expected list: still strict
+        self.assertEqual(changed_assertions("assert price() == 10\n", "assert price() == 12\n"), [])
+        self.assertEqual(changed_assertions("expect(routes).toEqual(['a', 'b']);\n", "expect(routes).toEqual(['a', 'b', 'c']);\n"), [])
+        dropped = changed_assertions("await expect(page.getByText('A')).toBeVisible();\n", "await page.goto('/');\n")
+        self.assertEqual(len(dropped), 1)
+        self.assertTrue(dropped[0].startswith("removed: "), dropped)
+        pilot = changed_assertions("    assert set(env) == set(RuntimeSettings.environment_names())\n",
+                                   "    assert set(RuntimeSettings.environment_names()) <= set(env)\n")
+        self.assertEqual(len(pilot), 1, pilot)
+        loose = changed_assertions("self.assertEqual(len(rows), 3)\n", "self.assertTrue(len(rows) >= 1)\n")
+        self.assertTrue(loose and loose[0].startswith(("relaxed: ", "removed: ")), loose)
+        skipped = changed_assertions("def test_a():\n    assert a == 1\n", "@pytest.mark.skip\ndef test_a():\n    assert a == 1\n")
+        self.assertEqual(skipped, ["skipped: @pytest.mark.skip"])
 
 
 class PromotedKitCompositionTests(_RegressionProject):

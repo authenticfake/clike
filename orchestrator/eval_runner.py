@@ -659,14 +659,41 @@ _ASSERTION_LINE_RE = re.compile(
     r"\bt\.(Error|Fatal)f?\(|\brequire\.\w+\(|assertThat\(|\$this->assert\w+\(")
 
 
+# a strict expectation (equality, exact length/text) and the looser forms it can be relaxed into
+_STRICT_ASSERT_RE = re.compile(r"==|\bis\b|\.to(Strict)?Equal\(|\.toBe\(|\.toHave(Length|Text|Value|Count|URL)\(|"
+                               r"assert(Equal|Equals|That|_equal|_eq)\w*|\.equal\(|\beq\(")
+_LOOSE_ASSERT_RE = re.compile(r"<=|>=|(?<![=!<>])[<>](?!=)|\bin\b|issubset|issuperset|\.toContain|toBeTruthy|toBeDefined|"
+                              r"toBeGreaterThan|toBeLessThan|toMatch|assert(True|In|IsNotNone|Greater|Less)\w*|\binclude\b")
+_SKIP_RE = re.compile(r"\b(skip|skipIf|xfail|fixme|xit|xdescribe)\b|\.only\(|@Disabled|@Ignore|t\.Skip")
+
+
 def changed_assertions(promoted: str, candidate: str) -> List[str]:
-    """Assertion lines of a promoted REQ's test that the candidate's version of the same file no
-    longer has as they were (removed or rewritten: `==` relaxed to `<=`, an expectation dropped).
-    Whitespace does not count; added assertions are not a change."""
-    def lines(text: str) -> List[str]:
-        return [re.sub(r"\s+", " ", line).strip() for line in text.splitlines() if _ASSERTION_LINE_RE.search(line)]
-    kept = set(lines(candidate))
-    return [line for line in lines(promoted) if line not in kept]
+    """How the candidate's version of a promoted REQ's test relaxes it: an assertion line dropped
+    (nothing similar left in its place), a strict expectation rewritten into a looser one (`==` to
+    `<=`, `toEqual` to `toContain`), a test newly skipped. A changed value or a longer expected
+    list stays strict: not a relaxation (the reconciled-tests warning still shows it)."""
+    import difflib
+
+    def lines(text: str, pattern: "re.Pattern[str]") -> List[str]:
+        return [re.sub(r"\s+", " ", line).strip() for line in text.splitlines() if pattern.search(line)]
+
+    old, new = lines(promoted, _ASSERTION_LINE_RE), lines(candidate, _ASSERTION_LINE_RE)
+    kept = set(new)
+    added = [line for line in new if line not in set(old)]
+    relaxed: List[str] = []
+    for line in old:
+        if line in kept:
+            continue
+        match = max(added, key=lambda other: difflib.SequenceMatcher(None, line, other).ratio(), default=None)
+        if match is None or difflib.SequenceMatcher(None, line, match).ratio() < 0.6:
+            relaxed.append(f"removed: {line}")
+            continue
+        added.remove(match)
+        if _STRICT_ASSERT_RE.search(line) and not _STRICT_ASSERT_RE.search(match) and _LOOSE_ASSERT_RE.search(match):
+            relaxed.append(f"relaxed: {line}  ->  {match}")
+    old_skips = set(lines(promoted, _SKIP_RE))
+    relaxed += [f"skipped: {line}" for line in lines(candidate, _SKIP_RE) if line not in old_skips]
+    return relaxed
 
 
 
@@ -5562,8 +5589,8 @@ class EvalRunner:
             shown = "\n".join(f"- {f}:\n" + "\n".join(f"    {line[:200]}" for line in lines[:5]) for f, lines in sorted(weakened.items()))
             cases.append(EvalCase(
                 name=f"regression::{other}::reconciled-tests-assertions", passed=False, code=1, blocking=True, stderr="",
-                stdout=(f"[CLike EvalRunner] Changed assertions in {other}'s delivered tests: this candidate's version of "
-                        f"{len(weakened)} test file(s) of {other} no longer has these assertions as they were:\n{shown}\n"
+                stdout=(f"[CLike EvalRunner] Relaxed assertions in {other}'s delivered tests: this candidate's version of "
+                        f"{len(weakened)} test file(s) of {other} removes, loosens or skips what they asserted:\n{shown}\n"
                         f"A delivered test proves what {other} promised: make the product satisfy it, and keep the test "
                         "as delivered (remove the candidate's copy, or only add to it). If the release changes that "
                         f"behavior on purpose, declare it: /eval {req_id} --supersede {other}#<path::test name> \"<why>\"."),
