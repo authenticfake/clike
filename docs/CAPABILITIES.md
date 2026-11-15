@@ -325,6 +325,10 @@ Expected impact:
 
 Design profiles are UI/UX constraints.
 
+A design profile says how a UI behaves; how it looks and is built — the component library, its tokens,
+the app shell — comes from the solution's design system (`tech_constraints.ui.design_system`, shadcn/ui by
+default): see `design-systems.md`.
+
 A design profile should answer one question:
 
 > What should the generated UI optimize for?

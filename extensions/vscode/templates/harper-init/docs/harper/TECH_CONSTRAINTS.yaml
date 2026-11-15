@@ -2,3 +2,5 @@
 # /idea writes the project's Technology Constraints in docs/harper/IDEA.md (a YAML block rooted at
 # `tech_constraints:`) and /spec writes that block here; every later phase follows this file.
 # Edit it after /spec to change a decision.
+# A user interface is built with the design system named in `tech_constraints.ui.design_system`
+# (shadcn-ui by default; also fluent2, carbon, mui, antd, or your own in .clike/design-systems/<id>.md).
