@@ -65,6 +65,25 @@ for 1 hour) apart from `input_tokens`. Each row's `pricing` has `cached_tokens`,
 cache charged as normal input, Anthropic cache not charged) are recomputed when shown
 (`pricing.cache_recomputed`).
 
+## Requirements, drill-down, KPIs and estimate
+
+Four views over the selected project or file:
+
+- **Overview → click a phase** in *Cost by Phase*: the requirements behind that phase (runs, time, cost,
+  tokens), ranked by cost; a row opens the requirement.
+- **Requirements**: the ranking of every REQ — cost, work time (agent/model time and eval sandbox time),
+  elapsed time (start of its first run to end of its last), KIT runs and repairs, evals and failed evals, the
+  first eval's outcome, the last gate, input tokens — sortable by any column, with the top 15 by a chosen
+  metric. A row opens its breakdown per phase (time, cost, tokens, cache).
+- **KPIs & estimate**: over the REQs of the selection — cost and work time per REQ (median, p90, mean),
+  elapsed per REQ, repairs per REQ, eval first-pass rate and evals per REQ, gate pass rate, prompt cache hit
+  rate, agent share of time, and the cost of the phases without a REQ (idea, spec, plan, extend, finalize).
+  **Estimate**: for N more requirements of similar size, cost and work time from median (typical) to p90
+  (prudent) of this project's history.
+
+Endpoint: `GET /v1/metrics/harper/reqs?project_id=…&estimate_reqs=N` (`reqs_file?relpath=…` for one file).
+Rows of an eval or gate (`execution: eval_sandbox`) count as eval time; the others as agent/model time.
+
 ## Technical Architecture
 
 The telemetry UI is exposed by the Gateway service.

@@ -492,3 +492,140 @@ def harper_raw_file(
     data = _raw_rows(rows, phase, model, provider, q, sort, page, page_size)
     data["relpath"] = relpath
     return data
+
+
+# === Requirements: ranking, phase drill-down, KPIs and estimate ===
+_PASS_STATUSES = {"PASS", "PASS_WITH_WARNINGS", "OK"}
+_FAIL_STATUSES = {"FAIL", "ERROR", "BLOCKED", "REJECTED", "FAILED"}
+
+
+def _status(r: dict) -> str:
+    out = r.get("outcome")
+    status = out.get("status") if isinstance(out, dict) else out
+    return str(status or "").strip().upper()
+
+
+def _is_req(req_id: str) -> bool:
+    return req_id.upper().startswith("REQ-")
+
+
+def _quantile(values: List[float], q: float) -> float:
+    """Nearest-rank quantile (no interpolation: a value that was observed)."""
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    index = max(0, min(len(ordered) - 1, int(round(q * (len(ordered) - 1)))))
+    return float(ordered[index])
+
+
+def _blank() -> dict:
+    return {"runs": 0, "cost_usd": 0.0, "tokens_in": 0, "tokens_out": 0, "tokens_cached": 0, "duration_ms": 0}
+
+
+def _add(target: dict, r: dict) -> None:
+    target["runs"] += 1
+    target["cost_usd"] += _cost_from_row(r)
+    target["tokens_in"] += _tokens_in_from_row(r)
+    target["tokens_out"] += _tokens_out_from_row(r)
+    target["tokens_cached"] += _cache_tokens(r.get("usage") or {})
+    target["duration_ms"] += _int(r.get("duration_ms"))
+
+
+def _req_analytics(rows: List[dict], estimate_reqs: int = 0) -> dict:
+    """Per requirement: cost, tokens, time (model/agent work and eval sandbox), KIT attempts and
+    repairs, eval and gate outcomes, per-phase breakdown; per phase: the requirements behind it;
+    KPIs over the REQs (median and p90, rates) and an estimate for ``estimate_reqs`` more REQs."""
+    reqs: Dict[str, dict] = {}
+    phase_reqs: Dict[str, Dict[str, dict]] = {}
+    other = _blank()  # phases without a REQ (idea, spec, plan, extend, finalize)
+    for r in sorted(rows, key=lambda x: _num(x.get("timestamp"), 0.0)):
+        phase = (r.get("phase") or "").lower() or "unknown"
+        req_id = str(r.get("req_id") or "").strip()
+        if not req_id or not _is_req(req_id):
+            _add(other, r)
+            req_id = req_id or "(none)"
+        item = reqs.setdefault(req_id, {
+            "req_id": req_id, **_blank(), "agent_ms": 0, "sandbox_ms": 0, "kit_runs": 0, "eval_runs": 0,
+            "eval_failed": 0, "eval_first": None, "eval_last": None, "gate": None, "first_ts": None,
+            "last_ts": None, "per_phase": {},
+        })
+        _add(item, r)
+        _add(item["per_phase"].setdefault(phase, _blank()), r)
+        _add(phase_reqs.setdefault(phase, {}).setdefault(req_id, {"req_id": req_id, **_blank()}), r)
+        ms = _int(r.get("duration_ms"))
+        if r.get("execution") == "eval_sandbox":
+            item["sandbox_ms"] += ms
+        else:
+            item["agent_ms"] += ms
+        ts = _num(r.get("timestamp"), 0.0)  # written when the run ends: it started duration_ms earlier
+        started = ts - ms / 1000.0
+        item["first_ts"] = started if item["first_ts"] is None else min(item["first_ts"], started)
+        item["last_ts"] = ts if item["last_ts"] is None else max(item["last_ts"], ts)
+        status = _status(r)
+        if phase == "kit":
+            item["kit_runs"] += 1
+        elif phase == "eval" and status:
+            item["eval_runs"] += 1
+            item["eval_failed"] += status in _FAIL_STATUSES
+            item["eval_first"] = item["eval_first"] or status
+            item["eval_last"] = status
+        elif phase == "gate" and status:
+            item["gate"] = status
+
+    out_reqs = []
+    for item in reqs.values():
+        item["repairs"] = max(0, item["kit_runs"] - 1)
+        item["span_s"] = round((item["last_ts"] or 0) - (item["first_ts"] or 0), 1)
+        item["cost_usd"] = round(item["cost_usd"], 6)
+        out_reqs.append(item)
+    out_reqs.sort(key=lambda x: x["cost_usd"], reverse=True)
+
+    measured = [x for x in out_reqs if _is_req(x["req_id"])]
+    costs = [x["cost_usd"] for x in measured]
+    times = [x["duration_ms"] for x in measured]
+    spans = [x["span_s"] for x in measured]
+    with_eval = [x for x in measured if x["eval_first"]]
+    with_gate = [x for x in measured if x["gate"]]
+    tokens_in = sum(x["tokens_in"] for x in measured)
+    agent_ms = sum(x["agent_ms"] for x in measured)
+    sandbox_ms = sum(x["sandbox_ms"] for x in measured)
+    kpis = {
+        "reqs": len(measured),
+        "cost_per_req": {"median": _quantile(costs, .5), "p90": _quantile(costs, .9), "mean": (sum(costs) / len(costs)) if costs else 0.0},
+        "time_per_req_ms": {"median": _quantile(times, .5), "p90": _quantile(times, .9), "mean": (sum(times) / len(times)) if times else 0.0},
+        "span_per_req_s": {"median": _quantile(spans, .5), "p90": _quantile(spans, .9)},
+        "repairs_per_req": (sum(x["repairs"] for x in measured) / len(measured)) if measured else 0.0,
+        "eval_first_pass_rate": (sum(x["eval_first"] in _PASS_STATUSES for x in with_eval) / len(with_eval)) if with_eval else None,
+        "eval_runs_per_req": (sum(x["eval_runs"] for x in with_eval) / len(with_eval)) if with_eval else 0.0,
+        "gate_pass_rate": (sum(x["gate"] in _PASS_STATUSES for x in with_gate) / len(with_gate)) if with_gate else None,
+        "cache_hit_rate": (sum(x["tokens_cached"] for x in measured) / tokens_in) if tokens_in else None,
+        "agent_time_share": (agent_ms / (agent_ms + sandbox_ms)) if (agent_ms + sandbox_ms) else None,
+        "other_phases": {**other, "cost_usd": round(other["cost_usd"], 6)},
+    }
+    estimate = None
+    if estimate_reqs > 0 and measured:
+        n = estimate_reqs
+        estimate = {
+            "reqs": n, "basis_reqs": len(measured),
+            "cost_usd": {"median": kpis["cost_per_req"]["median"] * n, "p90": kpis["cost_per_req"]["p90"] * n},
+            "time_ms": {"median": kpis["time_per_req_ms"]["median"] * n, "p90": kpis["time_per_req_ms"]["p90"] * n},
+        }
+    phases = {
+        phase: sorted(({**v, "cost_usd": round(v["cost_usd"], 6)} for v in per.values()), key=lambda x: x["cost_usd"], reverse=True)
+        for phase, per in phase_reqs.items()
+    }
+    return {"reqs": out_reqs, "phase_reqs": phases, "kpis": kpis, "estimate": estimate}
+
+
+@router.get("/harper/reqs")
+def harper_reqs(project_id: str = Query(...), estimate_reqs: int = Query(0, ge=0, le=1000)) -> dict:
+    data = _req_analytics(_load_project(project_id), estimate_reqs)
+    data["project_id"] = project_id
+    return data
+
+
+@router.get("/harper/reqs_file")
+def harper_reqs_file(relpath: str = Query(...), estimate_reqs: int = Query(0, ge=0, le=1000)) -> dict:
+    data = _req_analytics(_load_file(relpath), estimate_reqs)
+    data["relpath"] = relpath
+    return data
