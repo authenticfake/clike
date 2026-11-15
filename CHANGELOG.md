@@ -4,6 +4,15 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+## [1.9.8] — 2026-11-15 — The old default stays proven after promotion
+
+### Fixed
+
+- A `regression_env` declaration (1.9.6) held only while its REQ was the candidate: once promoted, the next
+  release's evals would have run the release 1 suites on the new default again. Like `supersedes`, it now
+  holds once promoted too, for the REQs delivered before it (plan order); the declaring REQ and the ones
+  after it run without it, proving the new default.
+
 ## [1.9.7] — 2026-11-15 — Delivered tests are extended, never relaxed
 
 ### Added
