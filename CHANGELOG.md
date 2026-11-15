@@ -4,6 +4,8 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+## [1.8.3] — 2026-11-15 — Releases with their inputs
+
 ### Fixed
 
 - `/idea --extend` reads the requirements of its release first. The phase budget went to the project inputs and

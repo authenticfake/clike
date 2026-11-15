@@ -5,7 +5,7 @@
 [![Made with Python](https://img.shields.io/badge/Made%20with-Python%203.12-3776AB?logo=python)](https://www.python.org/)
 [![VS Code Extension](https://img.shields.io/badge/VS%20Code-Extension-007ACC?logo=visualstudiocode)](extensions/vscode)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.8.2-informational)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.8.3-informational)](CHANGELOG.md)
 
 > **From intent to impact.** CLike turns an idea into reviewed, tested and promotable software
 > through a governed lifecycle in which cloud models and local coding agents execute, while
@@ -62,11 +62,11 @@ Models and agents execute.  Eval and Gate decide.
 
 | Version | Date | Milestone |
 |---|---|---|
-| 1.7.0 | 2026-11 | Complete requirements, sized for the executor: fifteen journey skills with 175 scenarios carried from SPEC to PLAN to the KIT, and `acceptance::coverage` blocks a REQ until every owned scenario is proved by a blocking check and a test named after it; REQ capacity profiles (single cloud call, agent vertical slice, epic with features) and KITs sized on the model's output budget; the same skills, test idioms and quality context on cloud and local agents, with repairs resumed in the KIT's session; a KIT skill context 55–65% smaller with no skill cut; `PASS_WITH_WARNINGS` promotes. See [CHANGELOG](CHANGELOG.md). |
 | 1.7.1 | 2026-11 | Proof that holds on the first repairs: a criterion id short (`A01`) or with its REQ (`REQ-009-A01`) is the same criterion in `acceptance::coverage`; `eval-contract-writer` says exactly which `ci/LTC.json` shapes the eval reads; a repair may fix a shared test-support file the regression names, as the diagnosis asks, with tests and assertions unchanged. See [CHANGELOG](CHANGELOG.md). |
 | 1.8.0 | 2026-11 | Verified before the eval: a local agent runs its KIT's checks in the real eval sandbox before it finishes, with the regression of the promoted REQs as soon as its checks pass; `/idea` writes structured project inputs (requirements, edge cases, journeys, test scenarios, decisions, coverage) that `/spec` and `/plan` read first; regression workers sized on the sandbox and timings in every report; evals and gates in telemetry; a run outlives a closed chat and a reopened chat follows it live. See [CHANGELOG](CHANGELOG.md). |
 | 1.8.1 | 2026-11 | A plan with its stack: `/idea` always writes the Technology Constraints rooted at `tech_constraints:` (validated on every executor) and treats a stack the sources decide as a decision, `/init` writes a plain placeholder and `/spec` stops when no technology decision exists, so `/plan` never comes out without lanes or lane guides; REQs are sized as C2 vertical slices by default. See [CHANGELOG](CHANGELOG.md). |
-| **1.8.2** | 2026-11 | Clean runs, fewer repairs: every check stops the processes it detached, a regression check that finds its port taken runs again alone, a local agent gets its lockfiles from CLike (`eval-check.mjs --lock`) without spending runs, a self review denying gaps is no longer read as incomplete, and the eval disk is kept free across projects with an early warning in `rebuild.sh`. See [CHANGELOG](CHANGELOG.md). |
+| 1.8.2 | 2026-11 | Clean runs, fewer repairs: every check stops the processes it detached, a regression check that finds its port taken runs again alone, a local agent gets its lockfiles from CLike (`eval-check.mjs --lock`) without spending runs, a self review denying gaps is no longer read as incomplete, and the eval disk is kept free across projects with an early warning in `rebuild.sh`. See [CHANGELOG](CHANGELOG.md). |
+| **1.8.3** | 2026-11 | Releases with their inputs: `/idea --extend` reads its release's requirements first, writes the release delta of the project inputs and of the BMAD/UX companions so every later phase sees the release, and customer documents reach `/idea` whole, with their sections and tables. See [CHANGELOG](CHANGELOG.md). |
 
 The last five versions; every version and change is in the [CHANGELOG](CHANGELOG.md).
 
@@ -180,7 +180,7 @@ VM with at least 4 GB, provider API keys for cloud models, optionally the Claude
 cp .env.example .env                      # provider keys + CLIKE_API_TOKEN=$(openssl rand -hex 32)
 cp docker/.env.example docker/.env        # CLIKE_PROJECTS_DIR = host folder containing your projects
 cd docker && podman-compose up -d --build # services on 127.0.0.1, wait until (healthy)
-code --install-extension ../extensions/vscode/clike-1.8.2.vsix
+code --install-extension ../extensions/vscode/clike-1.8.3.vsix
 ```
 
 In VS Code: **CLike: Set Service Token** (the `CLIKE_API_TOKEN` value). Full guide, local agents
