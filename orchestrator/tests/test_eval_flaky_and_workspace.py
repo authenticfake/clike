@@ -133,6 +133,22 @@ class BaselineCacheTests(_RegressionProject):
         self.assertFalse(case["blocking"])
         self.assertIn("a known unstable check", case["stderr"])
 
+    def test_the_same_failing_test_with_other_values_is_not_a_new_error(self):
+        # lead-generation REQ-001: a test comparing .env.example with the settings already differed on the
+        # promoted tree; the candidate adds one variable, the assertion message lists one more item
+        def out(extra):
+            return (f"E       AssertionError: assert {{'lg_a', 'lg_b'{extra}}} == {{'lg_a'}}\n"
+                    "FAILED ci/lg/runtime/test_req_behavior.py::test_cfg_05_example_matches - AssertionError: assert\n"
+                    "1 failed, 39 passed")
+        with tempfile.TemporaryDirectory() as tmp:
+            cache = eval_runner._BaselineCache(Path(tmp) / "REQ-001.json", "d1")
+            cache.store({"unit": True}, {"unit": eval_failures.error_keys(out(""))})
+            self.assertEqual(cache.new_errors("unit", out(", 'lg_ui_theme'")), [])
+            # another test failing too, or an error without a named test: still new
+            other = out(", 'lg_ui_theme'") + "\nFAILED ci/lg/runtime/test_api.py::test_health - ImportError: x\n"
+            self.assertTrue(cache.new_errors("unit", other))
+            self.assertTrue(cache.new_errors("unit", "E       ImportError: cannot import name 'x'\n"))
+
     def test_a_known_unstable_check_with_a_new_error_still_blocks(self):
         with tempfile.TemporaryDirectory() as tmp:
             cache = eval_runner._BaselineCache(Path(tmp) / "REQ-014.json", "d1")
