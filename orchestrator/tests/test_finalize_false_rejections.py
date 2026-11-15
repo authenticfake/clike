@@ -41,3 +41,19 @@ def test_the_apply_guard_counts_in_the_script_the_wrappers_delegate_to():
     assert "finalize_cloud_apply_guard_missing" not in unchanged["errors"]
     unguarded = _finalize(files + [("scripts/cloud_local.py", "run()\n")])
     assert "finalize_cloud_apply_guard_missing" in unguarded["errors"]
+
+
+def test_the_apply_guard_counts_two_delegations_down_through_a_python_import():
+    # lead-generation: the wrappers run solution_local.py cloud-apply, which imports solution_ops, the
+    # module that fails closed without CLIKE_ALLOW_CLOUD_MUTATION
+    sh = 'exec "${PYTHON:-python3}" -B "$SCRIPT_DIR/solution_local.py" cloud-apply "$@"\n'
+    ps1 = '& $python -B (Join-Path $PSScriptRoot "solution_local.py") cloud-apply @args\n'
+    local = 'def main():\n    if args.operation in {"cloud-apply"}:\n        from solution_ops import run\n        run(args)\n'
+    files = [("scripts/provision_cloud_apply.sh", sh), ("scripts/provision_cloud_apply.ps1", ps1), ("scripts/solution_local.py", local)]
+    returned = _finalize(files + [("scripts/solution_ops.py", GUARDED)])
+    assert "finalize_cloud_apply_guard_missing" not in returned["errors"]
+    unchanged = _finalize(files, existing=[("scripts/solution_ops.py", GUARDED)])
+    assert "finalize_cloud_apply_guard_missing" not in unchanged["errors"]
+    # a guard in a module nothing on the apply path reaches does not count
+    unrelated = _finalize(files + [("scripts/solution_ops.py", "def run(args):\n    deploy()\n"), ("scripts/other.py", GUARDED)])
+    assert "finalize_cloud_apply_guard_missing" in unrelated["errors"]

@@ -68,6 +68,29 @@ def _existing_source_by_path(payload: Dict[str, Any]) -> Dict[str, str]:
     return out
 
 
+def _delegation_chain_text(entry_text: str, known: Dict[str, str], *, exclude: set, depth: int = 4) -> str:
+    """`entry_text` and the text of the files it delegates to, followed `depth` levels: a file is reached when
+    its name appears in the text so far (a script run by path) or, for Python, when it is imported by module."""
+    text = entry_text
+    reached: set = set(exclude)
+    for _ in range(depth):
+        found = []
+        for path, body in known.items():
+            if path in reached:
+                continue
+            name = path.rsplit("/", 1)[-1]
+            stem = name.rsplit(".", 1)[0]
+            if name in text or (
+                name.endswith(".py") and re.search(rf"^\s*(?:from\s+{re.escape(stem)}\s+import|import\s+{re.escape(stem)}\b)", text, re.MULTILINE)
+            ):
+                found.append((path, body))
+        if not found:
+            break
+        reached.update(path for path, _ in found)
+        text += "\n" + "\n".join(body for _, body in found)
+    return text
+
+
 def normalize_local_agent_result(payload: Dict[str, Any]) -> Dict[str, Any]:
     """
     Normalize the extension actuator result back into a Harper-compatible envelope.
@@ -450,13 +473,12 @@ def normalize_local_agent_result(payload: Dict[str, Any]) -> Dict[str, Any]:
                 ]
             )
             if "CLIKE_ALLOW_CLOUD_MUTATION" not in apply_script:
-                # the wrappers may delegate to one implementation (test project: both run
-                # scripts/cloud_local.py apply, which fails closed): the guard counts there
+                # the wrappers may delegate to one implementation, which may delegate again (test project:
+                # both run scripts/cloud_local.py apply; lead-generation: solution_local.py imports
+                # solution_ops, which fails closed): the guard counts anywhere along the chain
                 known = {**_existing_source_by_path(payload), **content_by_path}
-                apply_script += "\n" + "\n".join(
-                    text for path, text in known.items()
-                    if path not in {"scripts/provision_cloud_apply.sh", "scripts/provision_cloud_apply.ps1"}
-                    and path.rsplit("/", 1)[-1] in apply_script
+                apply_script = _delegation_chain_text(
+                    apply_script, known, exclude={"scripts/provision_cloud_apply.sh", "scripts/provision_cloud_apply.ps1"}
                 )
             if "CLIKE_ALLOW_CLOUD_MUTATION" not in apply_script:
                 ok = False
