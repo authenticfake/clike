@@ -175,6 +175,7 @@ the repairs. Overrides, promotion and git are not exposed. Codex: approve the CL
 
 | Symptom | Fix |
 |---|---|
+| An eval ends with `EVAL ERROR … eval sandbox unavailable: ReadTimeout` | the eval lasted longer than the orchestrator's wait for the sandbox (one hour before 1.9.4, six hours now: `CLIKE_EVAL_SANDBOX_TIMEOUT_S`); a long regression also needs `clike.harperTimeout` (minutes) above its duration. Run the eval again |
 | Eval checks time out and the report says `Sandbox resources exhausted (… memory …)` | the eval sandbox is out of memory: raise `CLIKE_EVAL_SANDBOX_MEM_LIMIT` (docker/.env) and the container VM memory (`podman machine set --memory 16384`), or `CLIKE_EVAL_REGRESSION_WORKERS=1`; restart the services |
 | Eval returns 503 or the orchestrator restarts | container VM memory too low: raise it ([INSTALL §1](INSTALL.md#1-requirements)), lower `CLIKE_EVAL_SANDBOX_MEM_LIMIT` |
 | "No local agent is available" | install/log in `claude` or `codex`, or switch execution to cloud |

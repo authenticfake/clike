@@ -383,6 +383,10 @@ are done: passing alone, it was the parallel load, a non-blocking warning (`[CLi
 Timeout under parallel load: …`) never sent to a repair; failing alone too, it stays blocking and
 the note says the slowdown comes with the candidate.
 
+A long eval is never cut by CLike's own wait: the orchestrator waits for the sandbox up to
+`CLIKE_EVAL_SANDBOX_TIMEOUT_S` (default 6 hours, a guard against a lost sandbox); the deadline is the
+caller's (`clike.harperTimeout` in VS Code), and closing the request stops the run.
+
 A blocking failure of a promoted REQ that remains (a test, a service it starts, a value it
 provisions) is then run on the promoted tree **without the candidate**. If it fails there too, the
 candidate did not cause it (a check environment that later REQs outgrew, an earlier REQ): it is a

@@ -4,6 +4,16 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+## [1.9.4] — 2026-11-15 — No eval cut short
+
+### Fixed
+
+- An eval is no longer cut by the orchestrator's wait for the eval sandbox. The wait was one hour: a pilot's
+  regression of 23 promoted REQs, each installing the candidate's UI dependencies, was stopped at 56 minutes
+  with `eval sandbox unavailable: ReadTimeout`, a few REQs from the end. The caller owns the deadline
+  (`clike.harperTimeout`; closing the request stops the run); the orchestrator's wait is now a six-hour guard
+  against a lost sandbox (`CLIKE_EVAL_SANDBOX_TIMEOUT_S`), and connecting to the sandbox still fails fast.
+
 ## [1.9.3] — 2026-11-15 — Regression after a new dependency
 
 ### Fixed
