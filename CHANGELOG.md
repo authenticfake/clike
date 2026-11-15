@@ -4,6 +4,17 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+## [1.9.10] — 2026-11-15 — An already broken test stays already broken
+
+### Fixed
+
+- A promoted REQ's check that already fails without the candidate is no longer a "new error" when the same
+  tests fail with only other values in their messages. A pilot's release 1 test compared `.env.example` with
+  its settings and already differed on the promoted tree; the candidate's one new variable lengthened the
+  assertion message, the regression blocked, and the repair could only relax the test. Now: every test the
+  runner names failed must have failed on the promoted tree too; another failing test, or an error with no
+  named test, is still new.
+
 ## [1.9.9] — 2026-11-15 — A repair note that does not invite a relaxed test
 
 ### Fixed
