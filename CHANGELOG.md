@@ -4,6 +4,8 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+## [1.9.0] — 2026-11-15 — UIs worth showing
+
 ### Added
 
 - UI design systems: a solution with a user interface is built with a design system, chosen in
