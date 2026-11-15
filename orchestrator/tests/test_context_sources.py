@@ -356,3 +356,111 @@ def test_the_project_inputs_never_take_the_budget_of_a_release_nor_of_the_idea_s
     assert previous[0]["path"].endswith("REQUIREMENTS.md") and previous[0]["chars"] > 40_000
     assert sum(i["chars"] for i in previous) <= 120_000
 
+
+
+def _big_inputs(root: Path, chars: int) -> None:
+    from services.idea_inputs import INPUT_PATHS
+
+    for path in INPUT_PATHS:
+        (root / path).parent.mkdir(parents=True, exist_ok=True)
+        (root / path).write_text(f"| FR-AB-01 | {path} |\n" + "x" * chars)
+
+
+def test_the_release_cascade_reads_its_release_before_the_inputs_and_the_history(tmp_path: Path):
+    # lead-generation, simulated: /idea --extend reads the sources of idea, spec and plan; with the default
+    # budget the v2 requirements came after ~200K of v1 inputs and sources and arrived with 0 characters
+    (tmp_path / "docs" / "inputs" / "v2").mkdir(parents=True)
+    for n in range(4):
+        (tmp_path / "docs" / "inputs" / f"0{n}_v1.md").write_text("v1 " * 10_000)
+    (tmp_path / "docs" / "inputs" / "v2" / "r2.md").write_text("# Release 2\n\nExport to CRM.\n" + "y" * 70_000)
+    _big_inputs(tmp_path, 25_000)
+
+    items = resolve_context_sources(tmp_path, "extend", release="v2", phases=["idea", "spec", "plan"])["items"]
+    paths = [i["path"] for i in items]
+    r2 = items[paths.index("docs/inputs/v2/r2.md")]
+    assert paths[0] == "docs/inputs/v2/r2.md" and not r2["truncated"] and r2["chars"] > 70_000
+    assert r2["role"] == "requirements" and "this release" in r2["note"]
+    # the structured inputs next, the requirements of v1 (history) last
+    assert paths.index("docs/harper/inputs/REQUIREMENTS.md") < paths.index("docs/inputs/00_v1.md")
+    assert items[paths.index("docs/inputs/00_v1.md")]["role"] == PREVIOUS_RELEASE_ROLE
+
+
+def test_the_deltas_of_a_release_are_read_first_and_tagged_with_it(tmp_path: Path):
+    ws = _workspace(tmp_path)
+    (ws / "docs/inputs/v2").mkdir()
+    (ws / "docs/inputs/v2/r2.md").write_text("v2 needs\n")
+    (ws / "docs/harper/inputs").mkdir(parents=True)
+    (ws / "docs/harper/inputs/REQUIREMENTS.md").write_text("| FR-AB-01 | base |\n")
+    (ws / "docs/harper/inputs/RELEASE_v2.md").write_text("## Requirements\n| FR-AB-02 | new |\n")
+    (ws / "docs/harper/ux/releases/v2").mkdir(parents=True)
+    (ws / "docs/harper/ux/releases/v2/UX.md").write_text("## DESIGN.md\nnew screen\n")
+
+    spec = resolve_context_sources(ws, "spec")
+    paths = [i["path"] for i in spec["items"]]
+    assert spec["release"] == "v2"
+    first = {i["path"]: i for i in spec["items"][:3]}
+    assert set(first) == {"docs/inputs/v2/r2.md", "docs/harper/inputs/RELEASE_v2.md", "docs/harper/ux/releases/v2/UX.md"}
+    assert first["docs/harper/inputs/RELEASE_v2.md"]["role"] == "project_inputs"
+    assert first["docs/harper/ux/releases/v2/UX.md"]["role"] == "ui_reference"
+    assert all("this release" in i["note"] for i in first.values())
+    assert paths.index("docs/harper/inputs/REQUIREMENTS.md") < paths.index("docs/inputs/Specifiche.docx")
+    # the KIT reads the UI delta of the release before the earlier screens
+    kit = [i["path"] for i in resolve_context_sources(ws, "kit")["items"]]
+    assert kit[0] == "docs/harper/ux/releases/v2/UX.md"
+
+
+def test_requirements_are_read_whole_and_a_cut_is_named_never_hidden(tmp_path: Path):
+    ws = _workspace(tmp_path, manifest="sources:\n  - path: docs/inputs/**\n    role: requirements\nlimits:\n  max_file_chars: 1000\n  max_total_chars: 5000\n")
+    d = docx.Document()
+    for n in range(1, 9):
+        d.add_heading(f"Chapter {n}", level=1)
+        d.add_paragraph(f"rule {n} " * 120)
+    d.save(ws / "docs/inputs/Specifiche.docx")
+    ctx = resolve_context_sources(ws, "idea")
+    spec = next(i for i in ctx["items"] if i["path"] == "docs/inputs/Specifiche.docx")
+    # a requirements source is not cut at max_file_chars: only the total budget limits it
+    assert spec["chars"] > 1000 and spec["truncated"] and spec["full_chars"] > spec["chars"]
+    # cloud: the cut is said, with the sections the model did not get
+    block = render_context_sources_for_cloud(ctx)
+    assert "characters shown, the rest is not in this prompt. Never guess its content" in block
+    note = next(line for line in block.splitlines() if line.startswith("[docs/inputs/Specifiche.docx:"))
+    assert "Sections not shown: " in note and note.endswith("# Chapter 8")
+    # local agent: the converted document is whole in its package file
+    pkg = build_document_phase_local_agent_package(
+        phase="spec", payload={"runId": "r1", "idea_md": "# IDEA"},
+        execution_policy={"requested": "local_agent_only", "selected": "local_agent", "reason": "t", "phase_supported": True},
+    )
+    files = {f["path"]: f for f in attach_context_sources_to_local_package(pkg, ctx)["local_agent"]["package_files"]}
+    whole = files["runs/context/idea/docs/inputs/Specifiche.docx.txt"]["content"]
+    assert len(whole) == spec["full_chars"] and "# Chapter 8" in whole
+
+
+def test_docx_text_keeps_the_sections_and_the_tables_where_they_are():
+    from services.document_text import extract_document_text
+
+    d = docx.Document()
+    d.add_heading("Requirements", level=1)
+    d.add_paragraph("Leads are deduplicated by VAT number.")
+    bold = d.add_paragraph()
+    bold.add_run("Phase 2: Matching").bold = True
+    label = d.add_paragraph()
+    label.add_run("Roles:").bold = True
+    table = d.add_table(rows=2, cols=2)
+    table.cell(0, 0).text, table.cell(0, 1).text = "Country", "Source"
+    table.cell(1, 0).text, table.cell(1, 1).text = "IT", "Registry | PEC"
+    d.add_paragraph("After the table.", style="List Bullet")
+    out = io.BytesIO()
+    d.save(out)
+    text = extract_document_text("spec.docx", out.getvalue())
+    assert text.splitlines() == [
+        "# Requirements",
+        "Leads are deduplicated by VAT number.",
+        "## Phase 2: Matching",
+        "Roles:",
+        "",
+        "| Country | Source |",
+        "|---|---|",
+        "| IT | Registry \\| PEC |",
+        "",
+        "- After the table.",
+    ]
