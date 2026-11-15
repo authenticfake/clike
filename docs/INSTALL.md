@@ -76,7 +76,7 @@ With projects mounted by `mount-project.sh`, restart the stack with `./rebuild.s
 Install the packaged extension (or build it from source):
 
 ```bash
-code --install-extension extensions/vscode/clike-1.9.1.vsix
+code --install-extension extensions/vscode/clike-1.9.2.vsix
 # from source: cd extensions/vscode && npm ci && npm run check && npm run package
 ```
 
