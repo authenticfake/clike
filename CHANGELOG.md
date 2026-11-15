@@ -4,6 +4,15 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+## [1.9.11] — 2026-11-15 — The failed tests read from the whole output
+
+### Fixed
+
+- 1.9.10 looked for the failed tests' names in the excerpt of a check's output, which keeps the error lines
+  but not the runner's list of failed tests: the same already failing test was still reported as a new
+  error. They are now read from the whole output (verified on the pilot's report and baseline: 5 "new"
+  errors before, none now).
+
 ## [1.9.10] — 2026-11-15 — An already broken test stays already broken
 
 ### Fixed
