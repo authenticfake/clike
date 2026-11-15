@@ -689,3 +689,29 @@ test('Cancel reaches every Harper request and nothing is written after it (sourc
   assert.match(ext, /const afterKitEval = phase === 'kit' && !msg\.autoEvalRepair/);
   assert.match(ext, /\} else if \(afterKitEval && !harperCancelled\(\)\) \{/);
 });
+
+test('/idea --extend writes the release deltas of the inputs and companions, never the inputs or companions', () => {
+  const base = [
+    { path: 'docs/harper/PLAN.md', content: '# PLAN' },
+    { path: 'docs/harper/plan.json', content: '{}' },
+    { path: 'docs/harper/EXTEND_2026-11-15_REQ-3_REQ-4.md', content: '# audit' },
+  ];
+  assert.deepStrictEqual(
+    validateLocalAgentRequiredOutputs({
+      phase: 'extend',
+      artifacts: [...base,
+        { path: 'docs/harper/inputs/RELEASE_v2.md', content: '## Requirements' },
+        { path: 'docs/harper/bmad/releases/v2/BMAD_SPEC.md', content: '## PRD.md' },
+        { path: 'docs/harper/ux/releases/v2/UX.md', content: '## DESIGN.md' }],
+    }),
+    { ok: true, missing_required_roots: [] }
+  );
+  for (const rel of ['docs/harper/inputs/REQUIREMENTS.md', 'docs/harper/bmad/spec/PRD.md', 'docs/harper/ux/DESIGN.md',
+    'docs/harper/bmad/releases/v2/nested/X.md', 'docs/harper/inputs/RELEASE_v2.txt']) {
+    assert.throws(
+      () => validateLocalAgentRequiredOutputs({ phase: 'extend', artifacts: [...base, { path: rel, content: 'x' }] }),
+      (error) => error.code === 'LOCAL_AGENT_FORBIDDEN_OUTPUT_PATH',
+      rel
+    );
+  }
+});

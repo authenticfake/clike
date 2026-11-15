@@ -346,3 +346,56 @@ def test_cascade_with_areas_names_the_area_of_every_new_req():
     assert "aigateway (root aigateway); portal (root portal)" in prompt and "new_area" in prompt
     plain = _package({"runId": "ext-run", "extend": {"mode": "cascade", "release": "v2", "baseline": "v1"}})["local_agent"]["prompt_content"]
     assert "Areas of the project" not in plain and "new_area" not in plain
+
+
+CASCADE_WITH_DELTAS = {
+    "mode": "cascade", "release": "v2", "baseline": "v1",
+    "inputs_delta": "docs/harper/inputs/RELEASE_v2.md",
+    "companions": [
+        {"delta": "docs/harper/bmad/releases/v2/BMAD_SPEC.md",
+         "files": [{"path": "docs/harper/bmad/spec/PRD.md", "outline": ["Goals", "Epics"]}]},
+        {"delta": "docs/harper/ux/releases/v2/UX.md", "files": [{"path": "docs/harper/ux/DESIGN.md", "outline": []}]},
+    ],
+}
+
+
+def test_a_cascade_writes_the_release_deltas_of_the_inputs_and_the_companions():
+    package = _package({"runId": "ext-run", "extend": CASCADE_WITH_DELTAS})
+    local = package["local_agent"]
+    always = _context_file(package)["output_contract"]["always"]
+    deltas = ["docs/harper/inputs/RELEASE_v2.md", "docs/harper/bmad/releases/v2/BMAD_SPEC.md", "docs/harper/ux/releases/v2/UX.md"]
+    assert all(d in always and d in local["allowed_write_roots"] for d in deltas)
+    # the base inputs and the companions themselves stay as they are
+    assert not any(r.startswith(("docs/harper/inputs/REQ", "docs/harper/bmad/spec", "docs/harper/ux/DESIGN")) for r in local["allowed_write_roots"])
+    prompt = local["prompt_content"]
+    assert "`## Requirements`, `## Edge cases`, `## Journeys`, `## Test scenarios`, `## Decisions`, `## Coverage`" in prompt
+    assert "changed in v2: <new statement>" in prompt and "withdrawn in v2" in prompt
+    assert "`docs/harper/bmad/releases/v2/BMAD_SPEC.md` covers: docs/harper/bmad/spec/PRD.md (sections: Goals; Epics)" in prompt
+    assert "never edit the companions themselves" in prompt
+
+
+def test_a_cascade_without_inputs_or_companions_has_no_delta():
+    from services.extend_cascade import cloud_extend_section
+
+    package = _package({"runId": "ext-run", "extend": {"mode": "cascade", "release": "v2", "baseline": "v1"}})
+    assert "RELEASE_v2" not in package["local_agent"]["prompt_content"]
+    section = cloud_extend_section({"extend": {"mode": "cascade", "release": "v2", "baseline": "v1"}})
+    assert "release deltas" not in section and "Companion documents" not in section
+    cloud = cloud_extend_section({"extend": CASCADE_WITH_DELTAS})
+    assert "Also the release deltas: docs/harper/inputs/RELEASE_v2.md, docs/harper/bmad/releases/v2/BMAD_SPEC.md, docs/harper/ux/releases/v2/UX.md." in cloud
+
+
+def test_the_release_deltas_are_accepted_results_and_the_companions_are_not():
+    base = [
+        _file("docs/harper/PLAN.md", VALID_PLAN_MD),
+        _file("docs/harper/plan.json", VALID_PLAN_JSON),
+        _file("docs/harper/EXTEND_2026-06-08_REQ-2_REQ-2.md", AUDIT),
+    ]
+    ok = _normalize_extend(base + [
+        _file("docs/harper/inputs/RELEASE_v2.md", "## Requirements\n"),
+        _file("docs/harper/bmad/releases/v2/BMAD_SPEC.md", "## PRD.md\n"),
+        _file("docs/harper/ux/releases/v2/UX.md", "## DESIGN.md\n"),
+    ])
+    assert ok["ok"] is True
+    for path in ("docs/harper/inputs/REQUIREMENTS.md", "docs/harper/bmad/spec/PRD.md", "docs/harper/ux/DESIGN.md"):
+        assert _normalize_extend(base + [_file(path, "rewritten\n")])["ok"] is False, path

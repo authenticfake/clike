@@ -24,7 +24,7 @@ from services.local_agent.document import (
     _render_canonical_parity_block,
 )
 from services.phase_definitions import phase_text
-from services.extend_cascade import cascade_options, cascade_rules, cascade_title, extra_write_roots
+from services.extend_cascade import cascade_options, cascade_rules, cascade_title, delta_outputs, extra_write_roots
 
 
 def _text(key: str) -> list:
@@ -94,7 +94,7 @@ def build_extend_local_agent_package(
     if cascade:
         # /idea --extend: IDEA, SPEC and the PLAN delta always, TECH_CONSTRAINTS when the release adds to it
         output_contract = {
-            "always": ["docs/harper/IDEA.md", "docs/harper/SPEC.md", *output_contract["always"]],
+            "always": ["docs/harper/IDEA.md", "docs/harper/SPEC.md", *output_contract["always"], *delta_outputs(cascade)],
             "conditional": [
                 "docs/harper/TECH_CONSTRAINTS.yaml only by addition, when the release adds technology",
                 "docs/harper/lane-guides/<concern>.md only when lane guidance is introduced or extended",

@@ -17,7 +17,9 @@ from typing import Any, Dict, List, Optional
 import yaml
 
 from services.document_text import CONVERTIBLE_EXTENSIONS, extract_document_text
-from services.idea_inputs import INPUT_PATHS, INPUTS_DIR, MAX_TOTAL_CHARS as MAX_INPUTS_TOTAL_CHARS, READ_BY_LATER_PHASES
+from services.idea_inputs import (
+    INPUT_PATHS, INPUTS_DIR, MAX_TOTAL_CHARS as MAX_INPUTS_TOTAL_CHARS, READ_BY_LATER_PHASES, RELEASE_INPUTS_GLOB,
+)
 
 log = logging.getLogger(__name__)
 
@@ -35,7 +37,14 @@ DEFAULT_SOURCES: List[Dict[str, Any]] = [
 # targets) is the current one; files of earlier releases, and unversioned files once release folders
 # exist, are history — what the project already is, never new requirements.
 _RELEASE_DIR_RE = re.compile(r"^docs/(?:inputs|reference)/(v(\d+))/")
+# What /idea --extend writes for a release: the delta of the project inputs and of the BMAD/UX
+# companions (services/extend_cascade.py). Tagged with their release like the release folders.
+_RELEASE_DELTA_RE = re.compile(r"^docs/harper/(?:(?:bmad|ux)/releases/v(\d+)/|inputs/RELEASE_v(\d+)\.md$)")
 PREVIOUS_RELEASE_ROLE = "previous_release"
+# Roles whose files are what the phase is about: read whole (one cap, the total budget), not cut per file.
+PRIMARY_ROLES = frozenset({"requirements"})
+_OUTLINE_RE = re.compile(r"^#{1,6}\s+\S")
+MAX_OUTLINE = 40
 
 ROLE_GUIDANCE: Dict[str, str] = {
     "requirements": "primary input on what to build: requirements, specifications, business rules",
@@ -148,7 +157,29 @@ def release_number(name: Any) -> int:
 
 def _release_of(rel: str) -> int:
     match = _RELEASE_DIR_RE.match(rel)
-    return int(match.group(2)) if match else 0
+    if match:
+        return int(match.group(2))
+    delta = _RELEASE_DELTA_RE.match(rel)
+    return int(delta.group(1) or delta.group(2)) if delta else 0
+
+
+def _budget_priority(rel: str, role: str, target: int) -> int:
+    """Order in which the sources take the budget (stable within a rank): the release in progress first
+    (its own requirements, and the deltas /idea --extend wrote for it), then everything as declared, the
+    requirements and references of earlier releases (history) last. Without releases: as declared."""
+    if not target:
+        return 1
+    number = _release_of(rel)
+    if number == target:
+        return 0
+    return 2 if role in {"requirements", "reference"} else 1
+
+
+def _unread_outline(text: str) -> List[str]:
+    """The headings of a part of a source the budget left out (Markdown headings; converted documents
+    carry theirs, services/document_text.py), so the phase can name what it did not read."""
+    heads = [line.strip() for line in text.splitlines() if _OUTLINE_RE.match(line.strip())]
+    return heads[:MAX_OUTLINE] + ([f"... {len(heads) - MAX_OUTLINE} more"] if len(heads) > MAX_OUTLINE else [])
 
 
 def apply_releases(items: List[Dict[str, Any]], release: Optional[str] = None) -> Optional[str]:
@@ -190,8 +221,9 @@ def resolve_context_sources(
     # The project inputs /idea writes (docs/harper/inputs/), whatever context.yaml declares: read
     # first by /spec, /plan and /extend (the budget goes to them before the raw documents), and by
     # /idea after its sources, as the previous version whose IDs stay stable.
+    project_inputs = (*READ_BY_LATER_PHASES, RELEASE_INPUTS_GLOB)
     sources = (
-        [{"path": p, "role": "project_inputs", "phases": ["spec", "plan"], "note": ""} for p in READ_BY_LATER_PHASES]
+        [{"path": p, "role": "project_inputs", "phases": ["spec", "plan"], "note": ""} for p in project_inputs]
         + sources
     )
     if release_number(release):
@@ -203,51 +235,64 @@ def resolve_context_sources(
         ]
     # /extend: after the release's own requirements (the delta comes first); /idea: the previous
     # version of what it writes, in its own budget (its raw sources keep theirs), REQUIREMENTS first
-    sources += [{"path": p, "role": "project_inputs", "phases": ["extend"], "note": ""} for p in READ_BY_LATER_PHASES]
+    sources += [{"path": p, "role": "project_inputs", "phases": ["extend"], "note": ""} for p in project_inputs]
     sources += [{"path": p, "role": "previous_inputs", "phases": ["idea"], "note": ""} for p in (*INPUT_PATHS, f"{INPUTS_DIR}/*.md")]
     own_budget = {"previous_inputs": MAX_INPUTS_TOTAL_CHARS}
+    candidates = []
     for source in sources:
         if not wanted.intersection(source["phases"]):
             continue
         for path in _iter_matches(root, source["path"]):
             rel = path.relative_to(root).as_posix()
-            if rel in seen or len(items) >= limits["max_files"]:
-                continue
-            seen.add(rel)
-            ext = path.suffix.lower()
-            item: Dict[str, Any] = {"path": rel, "role": source["role"], "note": source["note"], "text": "", "truncated": False}
-            try:
-                size = path.stat().st_size
-                if size > limits["max_file_bytes"]:
-                    item.update(kind="skipped", reason=f"larger than {limits['max_file_bytes']} bytes")
-                elif ext in IMAGE_EXTENSIONS:
-                    item.update(kind="image", size_bytes=size)
-                elif ext in TEXT_EXTENSIONS:
-                    item.update(kind="text", text=path.read_text(encoding="utf-8", errors="replace"))
-                elif ext in CONVERTIBLE_EXTENSIONS:
-                    text = extract_document_text(rel, path.read_bytes())
-                    if text.strip():
-                        item.update(kind="converted", text=text)
-                    else:
-                        item.update(kind="skipped", reason="no extractable text")
+            if rel not in seen:
+                seen.add(rel)
+                candidates.append((rel, path, source))
+    # the release in progress takes the budget first: its requirements came last in declaration order and
+    # were cut to nothing behind the history (a v2 read with 0 characters)
+    target = release_number(release) or max((_release_of(rel) for rel, _, _ in candidates), default=0)
+    candidates.sort(key=lambda c: _budget_priority(c[0], c[2]["role"], target))
+    for rel, path, source in candidates[: limits["max_files"]]:
+        ext = path.suffix.lower()
+        item: Dict[str, Any] = {"path": rel, "role": source["role"], "note": source["note"], "text": "", "truncated": False}
+        try:
+            size = path.stat().st_size
+            if size > limits["max_file_bytes"]:
+                item.update(kind="skipped", reason=f"larger than {limits['max_file_bytes']} bytes")
+            elif ext in IMAGE_EXTENSIONS:
+                item.update(kind="image", size_bytes=size)
+            elif ext in TEXT_EXTENSIONS:
+                item.update(kind="text", text=path.read_text(encoding="utf-8", errors="replace"))
+            elif ext in CONVERTIBLE_EXTENSIONS:
+                text = extract_document_text(rel, path.read_bytes())
+                if text.strip():
+                    item.update(kind="converted", text=text)
                 else:
-                    item.update(kind="skipped", reason=f"unsupported format {ext or '(none)'}")
-            except OSError as exc:
-                item.update(kind="skipped", reason=f"unreadable: {exc.__class__.__name__}")
-            text = item["text"]
-            role = source["role"]
-            budget = max(0, own_budget[role] if role in own_budget else limits["max_total_chars"] - total)
-            cap = min(limits["max_file_chars"], budget)
-            if len(text) > cap:
-                item["text"] = text[:cap]
-                item["truncated"] = True
-            item["chars"] = len(item["text"])
-            if role in own_budget:
-                own_budget[role] -= item["chars"]
+                    item.update(kind="skipped", reason="no extractable text")
             else:
-                total += item["chars"]
-            items.append(item)
-    current = apply_releases(items, release)
+                item.update(kind="skipped", reason=f"unsupported format {ext or '(none)'}")
+        except OSError as exc:
+            item.update(kind="skipped", reason=f"unreadable: {exc.__class__.__name__}")
+        text = item["text"]
+        role = source["role"]
+        budget = max(0, own_budget[role] if role in own_budget else limits["max_total_chars"] - total)
+        cap = budget if role in PRIMARY_ROLES else min(limits["max_file_chars"], budget)
+        if len(text) > cap:
+            item["text"] = text[:cap]
+            item["truncated"] = True
+            item["full_chars"] = len(text)
+            item["unread_outline"] = _unread_outline(text[cap:])
+            if item["kind"] == "converted":
+                # a local agent reads the whole document from its package file, whatever the budget
+                item["full_text"] = text
+            if role in PRIMARY_ROLES:
+                log.warning("context sources phase=%s: %s cut at %d of %d characters (budget)", phase_name, rel, cap, len(text))
+        item["chars"] = len(item["text"])
+        if role in own_budget:
+            own_budget[role] -= item["chars"]
+        else:
+            total += item["chars"]
+        items.append(item)
+    current = apply_releases(items, f"v{target}" if target else None)
     if items:
         log.info(
             "context sources phase=%s origin=%s files=%d chars=%d release=%s",
@@ -277,6 +322,18 @@ def _roles_lines(items: List[Dict[str, Any]]) -> List[str]:
     return [f"- {role}: {ROLE_GUIDANCE.get(role, ROLE_GUIDANCE['reference'])}" for role in roles]
 
 
+def _unread_note(item: Dict[str, Any]) -> List[str]:
+    """What the budget left out of a source, said in the prompt: a phase must not guess it, nor believe it read it all."""
+    if not item.get("truncated"):
+        return []
+    outline = item.get("unread_outline") or []
+    return [
+        f"[{item['path']}: {item['chars']:,} of {item.get('full_chars', item['chars']):,} characters shown, the rest is "
+        "not in this prompt. Never guess its content: name what you could not read (as a gap, an open decision or "
+        "an unmapped section of the coverage).]" + (" Sections not shown: " + "; ".join(outline) if outline else ""),
+    ]
+
+
 def render_context_sources_for_cloud(context: Optional[Dict[str, Any]]) -> str:
     items = (context or {}).get("items") or []
     if not items:
@@ -287,7 +344,7 @@ def render_context_sources_for_cloud(context: Optional[Dict[str, Any]]) -> str:
         if item["kind"] in {"text", "converted"}:
             converted = " (converted to text)" if item["kind"] == "converted" else ""
             truncated = " [truncated]" if item["truncated"] else ""
-            lines += [f"{title}{converted}{truncated}", "<<<SOURCE", item["text"].rstrip(), "SOURCE>>>", ""]
+            lines += [f"{title}{converted}{truncated}", "<<<SOURCE", item["text"].rstrip(), "SOURCE>>>", *_unread_note(item), ""]
         elif item["kind"] == "image":
             lines += [f"{title} — image, {item.get('size_bytes', 0)} bytes (not visible to this model; "
                       "follow the textual UI references)", ""]
@@ -342,7 +399,7 @@ def attach_context_sources_to_local_package(result: Dict[str, Any], context: Opt
         role = item["role"] + _title_suffix(item)
         if item["kind"] == "converted":
             target = _converted_package_path(phase, item["path"])
-            files.append({"path": target, "content": item["text"], "mime": "text/plain", "encoding": "utf-8"})
+            files.append({"path": target, "content": item.get("full_text") or item["text"], "mime": "text/plain", "encoding": "utf-8"})
             lines.append(f"- {target} — role: {role} (text converted from {item['path']})")
         elif item["kind"] == "text":
             lines.append(f"- {item['path']} — role: {role}")

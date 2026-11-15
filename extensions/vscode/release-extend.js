@@ -47,6 +47,87 @@ function filesUnder(dir) {
   return out;
 }
 
+// What a release writes besides IDEA, SPEC and PLAN (rules in orchestrator services/extend_cascade.py): the delta of
+// the project inputs /idea derived (docs/harper/inputs/) and of the BMAD/UX companions — every later phase reads
+// them (the KIT too: ux/ is its UI reference), so a release that leaves them as they were is invisible to them.
+const INPUTS_DIR = 'docs/harper/inputs';
+const DELTA_RE = /^docs\/harper\/(?:inputs\/RELEASE_v\d+\.md|(?:bmad|ux)\/releases\/v\d+\/[^/]+\.md)$/;
+const INPUT_DELTA_SECTIONS = ['Requirements', 'Edge cases', 'Journeys', 'Test scenarios', 'Decisions', 'Coverage'];
+// finalize companions are written again by /finalize at the end of the release
+const COMPANION_SKIP = new Set(['releases', 'finalize']);
+const INPUT_ID_ROW_RE = /^\|\s*((?:N?FR|EC)-[A-Z]{2,4}-\d+|E2E-\d+|TS-\d+|D-\d+)\s*\|(.*)$/gm;
+
+const posixRel = (root, abs) => path.relative(root, abs).split(path.sep).join('/');
+const headingOutline = (text) => String(text || '').split(/\r?\n/).filter((l) => /^#{1,2}\s+\S/.test(l)).map((l) => l.replace(/^#+\s+/, '').trim()).slice(0, 20);
+
+/** The release deltas this cascade writes: { inputs_delta, companions: [{ delta, files: [{ path, outline }] }] }. */
+function releaseDeltas(root, release) {
+  if (!RELEASE_RE.test(String(release || ''))) return { inputs_delta: '', companions: [] };
+  const inputs_delta = read(root, `${INPUTS_DIR}/REQUIREMENTS.md`) != null ? `${INPUTS_DIR}/RELEASE_${release}.md` : '';
+  const companionsOf = (dir) => filesUnder(dir).map((f) => posixRel(root, f))
+    .filter((rel) => /\.md$/i.test(rel) && !rel.split('/').includes('releases')).sort()
+    .map((rel) => ({ path: rel, outline: headingOutline(read(root, rel)) }));
+  const companions = [];
+  let groups = [];
+  try {
+    groups = fs.readdirSync(path.join(root, 'docs', 'harper', 'bmad'), { withFileTypes: true })
+      .filter((e) => e.isDirectory() && !e.name.startsWith('.') && !COMPANION_SKIP.has(e.name)).map((e) => e.name).sort();
+  } catch { /* no BMAD companions */ }
+  for (const group of groups) {
+    const files = companionsOf(path.join(root, 'docs', 'harper', 'bmad', group));
+    if (files.length) companions.push({ delta: `docs/harper/bmad/releases/${release}/BMAD_${group.toUpperCase()}.md`, files });
+  }
+  const ux = companionsOf(path.join(root, 'docs', 'harper', 'ux'));
+  if (ux.length) companions.push({ delta: `docs/harper/ux/releases/${release}/UX.md`, files: ux });
+  return { inputs_delta, companions };
+}
+
+/** The release delta files on disk (to tell the ones a rejected or dry run wrote from the earlier ones). */
+function listDeltas(root) {
+  const out = filesUnder(path.join(root, 'docs', 'harper', 'inputs'));
+  for (const dir of ['bmad', 'ux']) out.push(...filesUnder(path.join(root, 'docs', 'harper', dir, 'releases')));
+  return out.map((f) => posixRel(root, f)).filter((rel) => DELTA_RE.test(rel));
+}
+
+/**
+ * The deltas the run wrote, checked: written, with their sections, and no input ID of an earlier release
+ * defined again without `changed in vN` / `withdrawn in vN`. Returns { warnings, deltas: [{ path, ok, issue }] }.
+ */
+function checkReleaseDeltas(root, cascade, current) {
+  const warnings = [];
+  const deltas = [];
+  const release = cascade.release || 'the release';
+  const note = (deltaPath, issue) => { deltas.push({ path: deltaPath, ok: !issue, issue }); if (issue) warnings.push(`${deltaPath}: ${issue}`); };
+  if (cascade.inputs_delta) {
+    const text = current(cascade.inputs_delta);
+    if (text == null) {
+      note(cascade.inputs_delta, `not written — /spec, /plan and the next release read docs/harper/inputs/ without ${release}`);
+    } else {
+      const missing = INPUT_DELTA_SECTIONS.filter((name) => !new RegExp(`^##\\s+${name}\\b`, 'im').test(text));
+      const earlier = new Set();
+      for (const f of filesUnder(path.join(root, ...INPUTS_DIR.split('/')))) {
+        const rel = posixRel(root, f);
+        if (rel === cascade.inputs_delta || !/\.md$/i.test(rel)) continue;
+        for (const m of String(read(root, rel) || '').matchAll(INPUT_ID_ROW_RE)) earlier.add(m[1]);
+      }
+      const redefined = [...String(text).matchAll(INPUT_ID_ROW_RE)]
+        .filter((m) => earlier.has(m[1]) && !/changed in|withdrawn/i.test(m[2])).map((m) => m[1]);
+      note(cascade.inputs_delta, [
+        missing.length ? `sections missing: ${missing.join(', ')}` : '',
+        redefined.length ? `IDs of earlier releases defined again without \`changed in ${release}\` or \`withdrawn in ${release}\` (a new item takes a new ID): ${[...new Set(redefined)].slice(0, 10).join(', ')}` : '',
+      ].filter(Boolean).join('; '));
+    }
+  }
+  for (const c of cascade.companions || []) {
+    const text = current(c.delta);
+    if (text == null) { note(c.delta, `not written — the later phases read ${c.files.length} companion(s) as the previous release left them`); continue; }
+    const missing = c.files.map((f) => path.posix.basename(f.path))
+      .filter((name) => !new RegExp(`^##\\s+\\W?${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'im').test(text));
+    note(c.delta, missing.length ? `no section for: ${missing.join(', ')}` : '');
+  }
+  return { warnings, deltas };
+}
+
 /** Highest `release` already in plan.json (REQs without one belong to v1). */
 function planRelease(planText) {
   let reqs = [];
@@ -110,6 +191,7 @@ function snapshotDocs(root) {
   const docs = Object.fromEntries(Object.entries({ ...DOC_FILES, ...PLAN_FILES }).map(([k, rel]) => [k, read(root, rel)]));
   docs.laneGuides = Object.fromEntries(listDir(root, LANE_DIR, /\.md$/i).map((n) => [`${LANE_DIR}/${n}`, read(root, `${LANE_DIR}/${n}`)]));
   docs.reports = listDir(root, 'docs/harper', /^EXTEND_.+\.md$/);
+  docs.deltas = listDeltas(root);
   // /adopt also integrates the root README and writes the run guide
   for (const [k, rel] of Object.entries(ADOPT_FILES)) docs[k] = read(root, rel);
   return docs;
@@ -365,7 +447,10 @@ function cascadeCommitFiles(root, release) {
       else if (e.isFile()) out.push(`${rel}/${e.name}`);
     }
   };
-  if (/^v\d+$/.test(String(release || ''))) for (const dir of ['docs/inputs', 'docs/reference']) walk(`${dir}/${release}`);
+  if (/^v\d+$/.test(String(release || ''))) {
+    for (const dir of ['docs/inputs', 'docs/reference', 'docs/harper/bmad/releases', 'docs/harper/ux/releases']) walk(`${dir}/${release}`);
+    if (read(root, `${INPUTS_DIR}/RELEASE_${release}.md`) != null) out.push(`${INPUTS_DIR}/RELEASE_${release}.md`);
+  }
   return out;
 }
 
@@ -469,6 +554,7 @@ function verificationMarkdown({ release, baseline, inputs = [], references = [],
     docs.useCases ? `- Use cases: ${docs.useCases.total}${docs.useCases.added.length ? ` (new: ${docs.useCases.added.join(', ')})` : ' (none new)'}` : '- Use cases: none in SPEC.md',
     docs.tech ? (docs.tech.missing?.length ? `- TECH_CONSTRAINTS.yaml: **restored** (lines removed: ${docs.tech.missing.length})` : '- TECH_CONSTRAINTS.yaml: extended') : '- TECH_CONSTRAINTS.yaml: unchanged',
     restored.length ? `- Existing REQs restored (read-only): ${restored.join('; ')}` : '- Existing REQs: unchanged',
+    ...(docs.deltas || []).map((d) => `- ${d.path}: ${d.ok ? 'written' : `**${d.issue}**`}`),
     '',
     '| REQ | Change | Title | Amends / retires | Supersedes | Depends on |',
     '|---|---|---|---|---|---|',
@@ -574,10 +660,12 @@ function reconcileExtend({ root, before, files, isAgent, mode = 'plan', cascade 
       else fs.writeFileSync(path.join(root, ...rel.split('/')), text, 'utf8');
     }
   };
+  const newDeltas = () => (isAgent ? listDeltas(root).filter((rel) => !(before.deltas || []).includes(rel)) : []);
   const restoreAll = () => {
     for (const [k, rel] of Object.entries({ ...DOC_FILES, ...PLAN_FILES })) {
       if (current(rel) !== before[k]) put(rel, before[k]);
     }
+    for (const rel of newDeltas()) put(rel, null);
     for (let i = files.length - 1; i >= 0; i -= 1) if (!/^docs\/harper\/EXTEND_[^/]+\.md$/.test(norm(files[i] && files[i].path))) files.splice(i, 1);
   };
   const warnings = [];
@@ -590,6 +678,17 @@ function reconcileExtend({ root, before, files, isAgent, mode = 'plan', cascade 
     return { ok: true, errors: [], warnings, delta: [], restored: [], docs: {}, report: null };
   }
 
+  if (mode === 'cascade') {
+    // the companions and the base inputs are never rewritten by a release: only its delta files are written
+    const allowed = new Set([cascade.inputs_delta, ...(cascade.companions || []).map((c) => c.delta)].filter(Boolean));
+    for (let i = files.length - 1; i >= 0; i -= 1) {
+      const rel = norm(files[i] && files[i].path);
+      if (/^docs\/harper\/(?:inputs|bmad|ux)\//.test(rel) && !allowed.has(rel)) {
+        files.splice(i, 1);
+        warnings.push(`${rel} ignored: a release writes its delta (${[...allowed].join(', ') || 'none for this project'}), never the earlier inputs or companions`);
+      }
+    }
+  }
   const adopting = mode === 'adopt';
   const checked = adopting ? adopt.check(before.plan, current(PLAN_FILES.plan)) : null;
   const verdict = adopting
@@ -611,7 +710,8 @@ function reconcileExtend({ root, before, files, isAgent, mode = 'plan', cascade 
       ? listDir(root, 'docs/harper', /^EXTEND_.+\.md$/).filter((n) => !before.reports.includes(n)).map((n) => `docs/harper/${n}`)
       : [];
     const adoptExtra = adopting ? Object.values(ADOPT_FILES) : [];
-    const kept = keepRejected(root, [...Object.values({ ...DOC_FILES, ...PLAN_FILES }), ...lanes, ...reports, ...adoptExtra].map((rel) => [rel, current(rel)]));
+    const deltaFiles = [cascade.inputs_delta, ...(cascade.companions || []).map((c) => c.delta)].filter(Boolean);
+    const kept = keepRejected(root, [...Object.values({ ...DOC_FILES, ...PLAN_FILES }), ...lanes, ...reports, ...adoptExtra, ...deltaFiles].map((rel) => [rel, current(rel)]));
     restoreAll();
     for (const rel of [...lanes, ...reports]) put(rel, rel in (before.laneGuides || {}) ? before.laneGuides[rel] : null);
     for (const [k, rel] of adopting ? Object.entries(ADOPT_FILES) : []) if (current(rel) !== before[k]) put(rel, before[k]);
@@ -692,6 +792,11 @@ function reconcileExtend({ root, before, files, isAgent, mode = 'plan', cascade 
       warnings.push(`${DOC_FILES.tech} removed earlier lines: restored — it changes only by addition`);
     }
   }
+  if (mode === 'cascade') {
+    const checkedDeltas = checkReleaseDeltas(root, cascade, current);
+    warnings.push(...checkedDeltas.warnings);
+    docs.deltas = checkedDeltas.deltas;
+  }
   if (!cascade.dryRun) {
     const synced = syncPlanMd(current(PLAN_FILES.planMd), current(PLAN_FILES.plan));
     if (synced.added.length) {
@@ -765,6 +870,10 @@ module.exports = {
   detectRelease,
   baselineStatus,
   cascadeInputCheck,
+  releaseDeltas,
+  checkReleaseDeltas,
+  listDeltas,
+  DELTA_RE,
   snapshotDocs,
   cascadeCommitFiles,
   declareSupersede,

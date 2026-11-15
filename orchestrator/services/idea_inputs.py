@@ -27,6 +27,14 @@ REQUIRE_IDS: Tuple[str, ...] = tuple(p for p in INPUT_PATHS if not p.endswith(("
 # What /spec and /plan read as requirements (COVERAGE is traceability, read by /idea only).
 READ_BY_LATER_PHASES: Tuple[str, ...] = tuple(p for p in INPUT_PATHS if not p.endswith("/COVERAGE.md"))
 
+# /idea --extend writes the release's delta of the inputs here, one file per release (services/extend_cascade.py)
+RELEASE_INPUTS_GLOB = f"{INPUTS_DIR}/RELEASE_v*.md"
+
+
+def release_inputs_path(release: str) -> str:
+    return f"{INPUTS_DIR}/RELEASE_{release}.md"
+
+
 MAX_FILE_CHARS = 50_000
 MAX_TOTAL_CHARS = 120_000
 

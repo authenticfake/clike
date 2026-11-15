@@ -655,3 +655,115 @@ test('validateDelta: with areas a REQ without one is an error, a new module come
   assert.equal(ok.newAreas[0].root, 'notifications');
   assert.equal(re.validateDelta({ beforeText: before, planText: plan({}), release: 'v2' }).ok, true);   // no areas: as before
 });
+
+// a project /idea derived inputs for, with BMAD and UX companions (lead-generation: v2 left all of them at v1)
+function projectWithCompanions() {
+  const p = project();
+  p.put('docs/harper/inputs/REQUIREMENTS.md', '## Changes\nFirst version\n\n| ID | Requirement |\n|---|---|\n| FR-LD-01 | Leads by VAT |\n| FR-LD-02 | Dedup |\n');
+  p.put('docs/harper/inputs/EDGE_CASES.md', '| EC-LD-01 | empty file | rejected | FR-LD-01 |\n');
+  p.put('docs/harper/bmad/spec/PRD.md', '# PRD\n\n## Goals\n\n## Epics\n');
+  p.put('docs/harper/bmad/spec/EPICS.md', '# Epics\n');
+  p.put('docs/harper/bmad/architecture/ARCHITECTURE.md', '# Architecture\n');
+  p.put('docs/harper/bmad/finalize/DOC_REVIEW.md', '# Review\n');
+  p.put('docs/harper/ux/DESIGN.md', '# Design\n');
+  p.put('docs/harper/ux/UI_DEMO.html', '<button/>');
+  return p;
+}
+
+const INPUTS_V2 = '## Requirements\n| FR-LD-03 | Export to CRM |\n| FR-LD-02 | Dedup by VAT and PEC — changed in v2: also by PEC |\n\n' +
+  '## Edge cases\nNo change\n\n## Journeys\nNo change\n\n## Test scenarios\nNo change\n\n## Decisions\nNo change\n\n## Coverage\n| docs/inputs/v2/IDEA_EXTEND_R2.md § Release 2 | FR-LD-03 |\n';
+
+test('the release deltas of a cascade: the inputs /idea derived and each companion folder, never finalize', () => {
+  const { root } = projectWithCompanions();
+  const d = re.releaseDeltas(root, 'v2');
+  assert.equal(d.inputs_delta, 'docs/harper/inputs/RELEASE_v2.md');
+  assert.deepEqual(d.companions.map((c) => c.delta), [
+    'docs/harper/bmad/releases/v2/BMAD_ARCHITECTURE.md',
+    'docs/harper/bmad/releases/v2/BMAD_SPEC.md',
+    'docs/harper/ux/releases/v2/UX.md',
+  ]);
+  const spec = d.companions[1];
+  assert.deepEqual(spec.files.map((f) => f.path), ['docs/harper/bmad/spec/EPICS.md', 'docs/harper/bmad/spec/PRD.md']);
+  assert.deepEqual(spec.files[1].outline, ['PRD', 'Goals', 'Epics']);
+  assert.deepEqual(d.companions[2].files.map((f) => f.path), ['docs/harper/ux/DESIGN.md']);   // Markdown companions only
+  // a project /idea never structured and without companions has none
+  const bare = project();
+  assert.deepEqual(re.releaseDeltas(bare.root, 'v2'), { inputs_delta: '', companions: [] });
+  fs.rmSync(root, { recursive: true, force: true });
+  fs.rmSync(bare.root, { recursive: true, force: true });
+});
+
+test('cloud cascade: the deltas are checked, rewrites of the inputs or companions are dropped', () => {
+  const { root } = projectWithCompanions();
+  const before = re.snapshotDocs(root);
+  const cascade = { release: 'v2', baseline: 'v1', ...re.releaseDeltas(root, 'v2') };
+  const files = [
+    { path: 'docs/harper/SPEC.md', content: `${SPEC_V1}\n## Release v2\nCRM.\n` },
+    { path: 'docs/harper/plan.json', content: planV2() },
+    { path: 'docs/harper/EXTEND_2026-11-15_REQ-003_REQ-004.md', content: '# EXTEND\n' },
+    { path: 'docs/harper/inputs/RELEASE_v2.md', content: INPUTS_V2.replace(' — changed in v2: also by PEC', '') },
+    { path: 'docs/harper/bmad/releases/v2/BMAD_SPEC.md', content: '## PRD.md\nCRM epic\n' },
+    { path: 'docs/harper/ux/releases/v2/UX.md', content: '## DESIGN.md\nNo change: no screen\n' },
+    { path: 'docs/harper/inputs/REQUIREMENTS.md', content: 'rewritten' },
+    { path: 'docs/harper/bmad/spec/PRD.md', content: 'rewritten' },
+  ];
+  const out = re.reconcileExtend({ root, before, files, isAgent: false, mode: 'cascade', validateExtendPlan, cascade });
+  assert.equal(out.ok, true, out.errors.join('; '));
+  const paths = files.map((f) => f.path);
+  assert.ok(!paths.includes('docs/harper/inputs/REQUIREMENTS.md') && !paths.includes('docs/harper/bmad/spec/PRD.md'));
+  assert.ok(out.warnings.some((w) => /inputs\/REQUIREMENTS\.md ignored: a release writes its delta/.test(w)));
+  // FR-LD-02 of v1 defined again with another meaning and no `changed in v2`
+  assert.ok(out.warnings.some((w) => /RELEASE_v2\.md: IDs of earlier releases defined again .*FR-LD-02/.test(w)));
+  assert.ok(out.warnings.some((w) => /BMAD_SPEC\.md: no section for: EPICS\.md/.test(w)));
+  assert.ok(out.warnings.some((w) => /BMAD_ARCHITECTURE\.md: not written/.test(w)));
+  assert.ok(!out.warnings.some((w) => w.startsWith('docs/harper/ux/releases/v2/UX.md:')));
+  const report = files.find((f) => f.path.startsWith('docs/harper/EXTEND_')).content;
+  assert.match(report, /- docs\/harper\/ux\/releases\/v2\/UX\.md: written/);
+  assert.match(report, /- docs\/harper\/bmad\/releases\/v2\/BMAD_ARCHITECTURE\.md: \*\*not written/);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('local agent: a complete delta passes; a dry or rejected cascade leaves no delta of its own behind', () => {
+  const { root, put } = projectWithCompanions();
+  const at = (rel) => path.join(root, ...rel.split('/'));
+  put('docs/harper/inputs/RELEASE_v1.md', '## Requirements\nNo change\n');     // an earlier delta stays
+  const cascade = { release: 'v2', baseline: 'v1', ...re.releaseDeltas(root, 'v2') };
+  const writeRun = () => {
+    put('docs/harper/plan.json', planV2());
+    put('docs/harper/EXTEND_2026-11-15_REQ-003_REQ-004.md', '# EXTEND\n');
+    put('docs/harper/inputs/RELEASE_v2.md', INPUTS_V2);
+    put('docs/harper/bmad/releases/v2/BMAD_SPEC.md', '## PRD.md\nx\n\n## EPICS.md\nNo change: none\n');
+    put('docs/harper/bmad/releases/v2/BMAD_ARCHITECTURE.md', '## ARCHITECTURE.md\nCRM adapter\n');
+    put('docs/harper/ux/releases/v2/UX.md', '## DESIGN.md\nNo change: no screen\n');
+  };
+  let before = re.snapshotDocs(root);
+  writeRun();
+  const ok = re.reconcileExtend({ root, before, files: [], isAgent: true, mode: 'cascade', validateExtendPlan, cascade, startedAt: Date.now() - 1000 });
+  assert.equal(ok.ok, true, ok.errors.join('; '));
+  assert.deepEqual(ok.warnings.filter((w) => /RELEASE_v2|releases\/v2/.test(w)), []);
+  assert.ok(ok.docs.deltas.every((d) => d.ok) && ok.docs.deltas.length === 4);
+  const committed = re.cascadeCommitFiles(root, 'v2');
+  for (const rel of ['docs/harper/inputs/RELEASE_v2.md', 'docs/harper/bmad/releases/v2/BMAD_SPEC.md', 'docs/harper/ux/releases/v2/UX.md']) {
+    assert.ok(committed.includes(rel), rel);
+  }
+
+  // dry run, then a rejected run: their deltas are removed, the earlier ones are not
+  for (const rel of ['docs/harper/inputs/RELEASE_v2.md', 'docs/harper/bmad/releases/v2/BMAD_SPEC.md', 'docs/harper/bmad/releases/v2/BMAD_ARCHITECTURE.md', 'docs/harper/ux/releases/v2/UX.md']) fs.rmSync(at(rel));
+  put('docs/harper/plan.json', JSON.stringify(PLAN_V1, null, 2));
+  before = re.snapshotDocs(root);
+  writeRun();
+  const dry = re.reconcileExtend({ root, before, files: [], isAgent: true, mode: 'cascade', validateExtendPlan, cascade: { ...cascade, dryRun: true } });
+  assert.equal(dry.ok, true);
+  assert.equal(fs.existsSync(at('docs/harper/inputs/RELEASE_v2.md')), false);
+  assert.equal(fs.existsSync(at('docs/harper/ux/releases/v2/UX.md')), false);
+  writeRun();
+  const broken = JSON.parse(planV2());
+  broken.reqs[3].amends = ['REQ-009'];
+  put('docs/harper/plan.json', JSON.stringify(broken));
+  const rejected = re.reconcileExtend({ root, before, files: [], isAgent: true, mode: 'cascade', validateExtendPlan, cascade });
+  assert.equal(rejected.ok, false);
+  assert.equal(fs.existsSync(at('docs/harper/bmad/releases/v2/BMAD_SPEC.md')), false);
+  assert.ok(fs.existsSync(path.join(root, rejected.kept, 'docs', 'harper', 'inputs', 'RELEASE_v2.md')));   // kept aside
+  assert.equal(fs.readFileSync(at('docs/harper/inputs/RELEASE_v1.md'), 'utf8'), '## Requirements\nNo change\n');
+  fs.rmSync(root, { recursive: true, force: true });
+});

@@ -262,6 +262,12 @@ _INPUT_ID_RE = re.compile(r"\b(?:FR|NFR|EC|E2E|TS|D)-(?:[A-Z]{2,4}-)?\d+\b")
 def validateProjectInputsMarkdown(content: str, *, path: str) -> Dict[str, Any]:
     failures: List[str] = []
     text = str(content or "")
+    if re.search(r"/RELEASE_v\d+\.md$", path):
+        # the delta /idea --extend writes for a release (services/extend_cascade.py): its sections, each
+        # possibly `No change` (a release that only changes the UI adds no requirement)
+        if not re.search(r"^##\s+Requirements\b", text, re.MULTILINE):
+            failures.append("release_inputs_without_requirements_section")
+        return _result(path, failures, "Release inputs delta failed Harper structure validation (its sections).")
     if len(text.strip()) < 200:
         failures.append("inputs_missing_or_empty")
     elif not path.endswith(("/COVERAGE.md", "/DECISIONS.md")) and not _INPUT_ID_RE.search(text):

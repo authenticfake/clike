@@ -108,7 +108,8 @@ PHASE_MODEL_PARAMS = {
     "eval":     {"max_tokens": 6500, "temperature": 0.1, "top_p": 1.0},
     "gate":     {"max_tokens": 6000, "temperature": 0.1, "top_p": 1.0},
     "finalize": {"max_tokens": 31000, "temperature": 0.1, "top_p": 1.0},
-    "extend": {"max_tokens": 26000, "temperature": 0.1, "top_p": 1.0},
+    # the cascade returns IDEA, SPEC, PLAN, plan.json, the report and the release deltas whole
+    "extend": {"max_tokens": 64000, "temperature": 0.1, "top_p": 1.0},
 }
 
 # --- RAG helpers: filter out docs and non-source hits -----------------------

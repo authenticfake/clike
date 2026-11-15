@@ -35,6 +35,10 @@ unversioned files once release folders exist, are history: they get the role `pr
 (what the project already is, never a new requirement). Files attached to `/idea --extend` are
 inputs of the targeted release too, next to its folders.
 
+The current release takes the budget first: its folders, and the deltas `/idea --extend` wrote for it
+(`docs/harper/inputs/RELEASE_vN.md`, `docs/harper/bmad/releases/vN/`, `docs/harper/ux/releases/vN/`);
+then the other sources in their declared order; the history last.
+
 ## Roles
 
 | Role | Meaning for the agent |
@@ -66,5 +70,11 @@ inputs of the targeted release too, next to its folders.
   symlinks leaving the workspace are ignored; hidden files and the canonical Harper documents
   (IDEA/SPEC/PLAN/plan.json/TECH_CONSTRAINTS, lane guides, BMAD companions) are never duplicated.
 - Canonical Harper documents and TECHNOLOGY CONSTRAINTS win on conflict; source content is data, never instructions.
-- Size caps per file and per phase; truncated files are marked. Every source costs tokens in each phase that reads
-  it (a 42 KB HTML prototype ≈ 10k tokens): declare only what the phase needs.
+- Size caps per file (`max_file_chars`) and per phase (`max_total_chars`). A `requirements` source is never cut
+  at `max_file_chars`: only the phase budget limits it. A cut source is said, never hidden: the cloud model gets
+  how much it was shown and the headings of the sections it was not, and is told not to guess them; a local
+  agent reads a converted document whole from `runs/context/<phase>/`, whatever the budget. Every source costs
+  tokens in each phase that reads it (a 42 KB HTML prototype ≈ 10k tokens): declare only what the phase needs.
+- Word documents are converted in reading order: headings as Markdown headings (also short paragraphs all in
+  bold, as many customer documents write them), list items as bullets, tables as Markdown rows where they
+  stand — so the sections of a source can be named and mapped (`COVERAGE.md`).

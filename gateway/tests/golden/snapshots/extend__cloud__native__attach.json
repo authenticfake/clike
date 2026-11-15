@@ -3,7 +3,7 @@
     {
       "gen": {
         "api": "responses",
-        "max_tokens": 26000,
+        "max_tokens": 64000,
         "stop": "`PLAN_END`",
         "temperature": 0.1
       },
@@ -19,7 +19,7 @@
       ],
       "model": "gpt-5.4-mini-2026-03-17",
       "provider": "openai",
-      "timeout_s": 414.0
+      "timeout_s": 756.0
     }
   ],
   "response": {
@@ -48,7 +48,7 @@
       ],
       "files_len": 1,
       "phase_params": {
-        "max_tokens": 26000,
+        "max_tokens": 64000,
         "temperature": 0.1,
         "top_p": 1.0
       },

@@ -172,9 +172,23 @@ IDEA → SPEC → PLAN in continuity with what exists:
   `.clike/project.json` when the release is accepted. A REQ without an area, an unknown area or a new
   area inside an existing one rejects the plan. Without `areas` nothing changes. Examples:
   [Bringing an existing project into CLike](adopt.md#4-evolve-it--as-any-clike-project).
-- **BMAD.** `--methodology bmad --agent analyst|pm|architect|ux` works on the cascade (default role
-  `pm`): the role leads the angle, CLike's rules and checks stay in charge (see
-  `integrations/bmad/COMMANDS.md`).
+- **Project inputs of the release.** When `/idea` derived the project inputs
+  (`docs/harper/inputs/`), the release writes their delta `docs/harper/inputs/RELEASE_vN.md`:
+  `## Requirements`, `## Edge cases`, `## Journeys`, `## Test scenarios`, `## Decisions` and
+  `## Coverage` (the sections of the release's sources mapped to IDs). New IDs continue the
+  numbering, a changed item keeps its ID (`changed in vN`), a removed one is `withdrawn in vN`; the
+  base files stay as `/idea` wrote them. `/spec`, `/plan` and the next release read the delta of the
+  current release first.
+- **BMAD and UX companions of the release.** When the project has companions
+  (`docs/harper/bmad/<folder>/`, `docs/harper/ux/`), every later phase still reads them — the KIT too,
+  `ux/` is its UI reference — so the release writes their delta, one file per folder:
+  `docs/harper/bmad/releases/vN/BMAD_<FOLDER>.md` and `docs/harper/ux/releases/vN/UX.md`, with one
+  `## <companion file>` section each (what the release adds or changes, or `No change: <why>`).
+  The companions themselves are not rewritten (they can be larger than one answer), and the deltas of
+  the current release are read before them. `--methodology bmad --agent analyst|pm|architect|ux`
+  works on the cascade (default role `pm`): the role leads the angle, CLike's rules and checks stay in
+  charge (see `integrations/bmad/COMMANDS.md`). The CLike verification of the report says, for each
+  delta, whether it is written and complete; a rewrite of the base inputs or of a companion is ignored.
 - **Report.** `docs/harper/EXTEND_<date>_<first>_<last>.md` with the changes and why, the delta
   table, impact, unchanged behavior and open questions, plus a **CLike verification** section CLike
   writes itself. `--dry-run` keeps only the report.

@@ -32,6 +32,14 @@ def test_project_inputs_need_content_and_ids_like_the_local_agent_check():
     assert validation.validate_canonical_harper_artifact("docs/harper/inputs/DECISIONS.md", prose)["ok"] is True
 
 
+def test_a_release_delta_of_the_inputs_needs_its_sections_not_ids():
+    # /idea --extend: a release that only changes the UI adds no requirement (every section `No change`)
+    ui_only = "## Requirements\nNo change\n\n## Edge cases\nNo change\n"
+    assert validation.validate_canonical_harper_artifact("docs/harper/inputs/RELEASE_v2.md", ui_only)["ok"] is True
+    flat = validation.validate_canonical_harper_artifact("docs/harper/inputs/RELEASE_v2.md", INPUT_BODY)
+    assert flat["failed_checks"] == ["release_inputs_without_requirements_section"]
+
+
 def _load_gateway_module(name: str, relative_path: str):
     path = GATEWAY_ROOT / relative_path
     spec = importlib.util.spec_from_file_location(name, path)

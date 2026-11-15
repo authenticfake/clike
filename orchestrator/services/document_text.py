@@ -7,8 +7,11 @@ from __future__ import annotations
 import io
 import logging
 import os
+import re
 
 import docx
+from docx.table import Table as DocxTable
+from docx.text.paragraph import Paragraph as DocxParagraph
 import openpyxl  # .xlsx
 import xlrd  # .xls (legacy)
 from pdfminer.high_level import extract_text
@@ -27,24 +30,69 @@ def _extract_text_from_pdf_bytes(raw: bytes) -> str:
         return ""
 
 
+_DOCX_HEADING_RE = re.compile(r"^(?:heading|titolo|t[ií]tulo|titre|[uü]berschrift|kop)\s*(\d)$", re.IGNORECASE)
+
+
+def _docx_heading_level(style_name: str) -> int:
+    name = str(style_name or "").strip()
+    if name.lower() in {"title", "titolo", "titre", "título", "titel"}:
+        return 1
+    match = _DOCX_HEADING_RE.match(name)
+    return min(6, int(match.group(1))) if match else 0
+
+
+def _docx_bold_heading(paragraph, text: str) -> bool:
+    """A heading written as a short paragraph all in bold (documents without heading styles), not a bold label."""
+    runs = [r for r in paragraph.runs if (r.text or "").strip()]
+    return bool(runs) and len(text) <= 120 and not text.endswith((":", ".", ";")) and all(r.bold for r in runs)
+
+
+def _docx_cell(text: str) -> str:
+    return " / ".join(part.strip() for part in str(text or "").splitlines() if part.strip()).replace("|", "\\|")
+
+
+def _docx_table_lines(table) -> list:
+    """A table as Markdown rows (merged cells, which python-docx repeats, once), header separator after row 1."""
+    lines = []
+    for row in table.rows:
+        cells = []
+        for cell in row.cells:
+            text = _docx_cell(cell.text)
+            if not cells or cells[-1] != text:
+                cells.append(text)
+        if any(cells):
+            lines.append("| " + " | ".join(cells) + " |")
+            if len(lines) == 1:
+                lines.append("|" + "---|" * len(cells))
+    return lines
+
+
 def _extract_text_from_docx_bytes(raw: bytes) -> str:
-    # python-docx
+    """The document in reading order: headings as Markdown headings (sections a phase can name and map),
+    list items as bullets, tables as Markdown rows where they stand (no longer one cell per line at the end)."""
     try:
         doc = docx.Document(io.BytesIO(raw))
         parts = []
-        # paragraphs
-        for p in doc.paragraphs:
-            t = (p.text or "").strip()
-            if t:
-                parts.append(t)
-        # tables (cells)
-        for tbl in getattr(doc, "tables", []):
-            for row in tbl.rows:
-                for cell in row.cells:
-                    t = (cell.text or "").strip()
-                    if t:
-                        parts.append(t)
-        return "\n".join(parts)
+        for block in doc.element.body.iterchildren():
+            tag = block.tag.rsplit("}", 1)[-1]
+            if tag == "p":
+                paragraph = DocxParagraph(block, doc)
+                text = (paragraph.text or "").strip()
+                if not text:
+                    continue
+                style = getattr(paragraph.style, "name", "") or ""
+                level = _docx_heading_level(style) or (2 if _docx_bold_heading(paragraph, text) else 0)
+                if level:
+                    parts.append(f"{'#' * level} {text}")
+                elif style.lower().startswith("list"):
+                    parts.append(f"- {text}")
+                else:
+                    parts.append(text)
+            elif tag == "tbl":
+                lines = _docx_table_lines(DocxTable(block, doc))
+                if lines:
+                    parts.extend(["", *lines, ""])
+        return "\n".join(parts).strip()
     except Exception as e:
         log.warning("DOCX extract failed: %s", e)
         return ""

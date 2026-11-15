@@ -4,6 +4,34 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+## [1.8.3] — 2026-11-15 — Releases with their inputs
+
+### Fixed
+
+- `/idea --extend` reads the requirements of its release first. The phase budget went to the project inputs and
+  to the sources of earlier releases in declaration order, and the new release came last: with the default budget
+  its requirements reached the cloud model with 0 characters, and a converted document reached a local agent
+  empty. The current release (its folders and the deltas written for it) now takes the budget first, the history
+  last.
+- `/idea --extend` keeps the project inputs current: it writes the release's delta
+  `docs/harper/inputs/RELEASE_vN.md` (requirements, edge cases, journeys, test scenarios, decisions, coverage of
+  the release's sources), with IDs that continue the numbering. Before, `docs/harper/inputs/` stayed at the first
+  release while `/spec`, `/plan` and the next release read it first as the current truth.
+- `/idea --extend` keeps the BMAD and UX companions current: one delta per companion folder
+  (`docs/harper/bmad/releases/vN/`, `docs/harper/ux/releases/vN/UX.md`), read before the companions by every
+  later phase. Before, the KIT of a new release read the product, architecture and screens of the previous one.
+  CLike checks each delta (written, one section per companion, no earlier input ID reused) and ignores a rewrite
+  of the base inputs or of a companion.
+- Customer documents reach `/idea` whole. A `requirements` source is no longer cut at the per-file cap (60,000
+  characters: a 100-page specification arrived for less than a third, silently); a source the phase budget cuts
+  is said to the cloud model with the headings it did not get, and a local agent reads the converted document
+  whole.
+- Word documents are converted in reading order, with their headings (also short all-bold paragraphs, as many
+  customer documents write them) and their tables as Markdown rows where they stand. Before, headings were lost
+  and every table came at the end, one cell per line: the coverage could not name a section.
+- The cascade's cloud answer may be as long as `/idea`'s (it returns IDEA, SPEC, PLAN, plan.json, the report and
+  the deltas whole).
+
 ## [1.8.2] — 2026-11-14 — Clean runs, fewer repairs
 
 ### Fixed
