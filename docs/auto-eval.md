@@ -383,6 +383,20 @@ are done: passing alone, it was the parallel load, a non-blocking warning (`[CLi
 Timeout under parallel load: …`) never sent to a repair; failing alone too, it stays blocking and
 the note says the slowdown comes with the candidate.
 
+**A regression already run on the same workspace is not run again.** Each promoted REQ's regression is
+kept, on the sandbox volume, with the digest of its composed workspace (every file its checks can read)
+and of what else decides it (the promoted state, CLike and its environment, the declared changes). The
+next eval reuses it when the digest is the same and it did not block, marked `Reused: … byte-identical
+workspace`: an eval run again after an interruption resumes, and a repair that changed only what the
+promoted REQs do not receive (the candidate's own tests, CI scripts or docs) skips their regression. A
+change to the candidate's source changes every workspace: everything runs again. A blocking result is
+never reused, and nothing is reused for longer than a day.
+
+**Disk.** Before an eval composes its workspaces it checks the free space on the eval volume
+(`CLIKE_EVAL_MIN_FREE_GB`, default 10, and at least 15%). Below it the work directories of the project's
+other evals are removed, least recently used first (reports and the shared caches stay); still below,
+the report carries the warning `env::disk-space` with the remedy, before an install fails unclearly.
+
 A long eval is never cut by CLike's own wait: the orchestrator waits for the sandbox up to
 `CLIKE_EVAL_SANDBOX_TIMEOUT_S` (default 6 hours, a guard against a lost sandbox); the deadline is the
 caller's (`clike.harperTimeout` in VS Code), and closing the request stops the run.

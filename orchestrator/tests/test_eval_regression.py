@@ -371,6 +371,71 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class RegressionReuseTests(_RegressionProject):
+    """A promoted REQ's regression whose composed workspace is byte-identical to a run that did not block
+    is reused (an eval run again after it was interrupted, a repair that touched only the candidate's own
+    tests); any change to what it receives runs it again."""
+
+    NOTE = "regression ran"
+
+    def setUp(self):
+        super().setUp()
+        self._root = patch.dict(os.environ, {"CLIKE_EVAL_ROOT": str(self.tmp / f"eval-{self._testMethodName[-20:]}")})
+        self._root.start()
+        self.addCleanup(self._root.stop)
+
+    def _regression(self, body):
+        return {c["name"]: c for c in body["cases"] if c["name"].startswith("regression::REQ-001::")}
+
+    def test_an_unchanged_workspace_is_reused_and_a_changed_one_runs_again(self):
+        first = self._post("/v1/eval/run", "REQ-002", regression=True).json()
+        self.assertIn(first["status"], ("PASS", "PASS_WITH_WARNINGS"))
+        ran = self._regression(first)
+        self.assertTrue(ran and not any(self.NOTE in c["stdout"] for c in ran.values()), ran)
+        # the repair touches only what REQ-001 does not receive (the candidate's own docs)
+        (self.proj / "runs" / "kit" / "REQ-002" / "docs").mkdir(exist_ok=True)
+        (self.proj / "runs" / "kit" / "REQ-002" / "docs" / "KIT_REQ-002.md").write_text("# repaired\n")
+        second = self._post("/v1/eval/run", "REQ-002", regression=True).json()
+        self.assertIn(second["status"], ("PASS", "PASS_WITH_WARNINGS"))
+        reused = self._regression(second)
+        self.assertEqual(set(reused), set(ran))
+        self.assertTrue(all(self.NOTE in c["stdout"] and "byte-identical" in c["stdout"] for c in reused.values()), reused)
+        # the candidate's source changes: REQ-001's workspace changes, its regression runs again
+        (self.proj / "runs" / "kit" / "REQ-002" / "src" / "checkout.py").write_text(
+            "from pricing import price\n\ndef total(n):\n    return n * price()  # changed\n")
+        third = self._regression(self._post("/v1/eval/run", "REQ-002", regression=True).json())
+        self.assertTrue(third and not any(self.NOTE in c["stdout"] for c in third.values()), third)
+
+    def test_a_blocking_regression_is_never_reused(self):
+        # the candidate breaks REQ-001: price() changes under it
+        (self.proj / "runs" / "kit" / "REQ-002" / "src" / "pricing.py").write_text("def price():\n    return 11\n")
+        (self.proj / "runs" / "kit" / "REQ-002" / "test" / "test_checkout.py").write_text(
+            "from checkout import total\nfrom pricing import price\nassert total(2) == 2 * price()\n")
+        first = self._regression(self._post("/v1/eval/run", "REQ-002", regression=True).json())
+        self.assertTrue(any(not c["passed"] and c["blocking"] for c in first.values()), first)
+        again = self._regression(self._post("/v1/eval/run", "REQ-002", regression=True).json())
+        self.assertFalse(any(self.NOTE in c["stdout"] for c in again.values()), again)
+
+    def test_a_low_disk_prunes_other_evals_then_warns(self):
+        from eval_runner import EvalRunner
+
+        base = Path(os.environ["CLIKE_EVAL_ROOT"])
+        old = base / "REQ-001"
+        (old / "work").mkdir(parents=True)
+        (base / ".regression-baseline").mkdir(parents=True)
+        os.utime(old, (1, 1))
+        full = shutil.disk_usage(base)
+        low = type(full)(full.total, full.total - 1, 1)
+        with patch("eval_runner.shutil.disk_usage", return_value=low):
+            case = EvalRunner(self.proj)._disk_guard("REQ-002")
+        self.assertFalse(old.exists())
+        self.assertTrue((base / ".regression-baseline").exists())
+        self.assertEqual((case.name, case.passed, case.blocking), ("env::disk-space", False, False))
+        self.assertIn("Removed the work directories of REQ-001", case.stdout)
+        with patch("eval_runner.shutil.disk_usage", return_value=full._replace(free=full.total)):
+            self.assertIsNone(EvalRunner(self.proj)._disk_guard("REQ-002"))
+
+
 class PromotedKitCompositionTests(_RegressionProject):
     """A promoted KIT is already in the canonical tree, merged with what later REQs changed: its
     stale KIT copy must not shadow the canonical files, neither as a dependency nor in its own
