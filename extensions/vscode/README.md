@@ -1,6 +1,6 @@
 # CLike VS Code Extension
 
-![Logo di Clike](images/clike_64x64.png)
+![CLike logo](https://raw.githubusercontent.com/authenticfake/clike/main/extensions/vscode/images/clike_64x64.png)
 
 **[CLike at a glance](https://github.com/authenticfake/clike/blob/main/docs/clike-at-a-glance.md)** — what CLike does, area by area.
 
@@ -18,7 +18,7 @@
 - Cloud + local agent compatible
 
 
-> Install and first steps: [docs/INSTALL.md](../../docs/INSTALL.md) · [docs/GET_STARTED.md](../../docs/GET_STARTED.md)
+> Install and first steps: [docs/INSTALL.md](https://github.com/authenticfake/clike/blob/main/docs/INSTALL.md) · [docs/GET_STARTED.md](https://github.com/authenticfake/clike/blob/main/docs/GET_STARTED.md)
 
 ## What the extension does today
 
@@ -164,7 +164,7 @@ These are used across Free / Coding / Harper flows.
   command in flight
 - `classic`, `pro`, `studio`, `paper`: the same features in a single column
 
-What each area shows and the settings that change the UI: [docs/chat-ui.md](../../docs/chat-ui.md).
+What each area shows and the settings that change the UI: [docs/chat-ui.md](https://github.com/authenticfake/clike/blob/main/docs/chat-ui.md).
 
 ---
 
@@ -172,7 +172,7 @@ What each area shows and the settings that change the UI: [docs/chat-ui.md](../.
 
 ### 1. Backend
 
-Start the CLike stack (see the [main README](../../README.md#quick-start)). The services listen on
+Start the CLike stack (see the [main README](https://github.com/authenticfake/clike/blob/main/README.md#quick-start)). The services listen on
 loopback and require a service token:
 
 - **Orchestrator**: `http://localhost:8080`
@@ -350,7 +350,7 @@ The extension currently supports a **base KIT run by default**, plus optional ex
   - searches the RAG directly and returns top results
 
 - **CLike: Memory** (🧠 Memory in the chat)
-  - a separate panel to query the project memory and the CLike guide in natural language, in any language, and list what each holds ([docs/rag.md](../../docs/rag.md#memory-panel))
+  - a separate panel to query the project memory and the CLike guide in natural language, in any language, and list what each holds ([docs/rag.md](https://github.com/authenticfake/clike/blob/main/docs/rag.md#memory-panel))
 
 ---
 
