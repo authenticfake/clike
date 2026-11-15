@@ -1057,7 +1057,26 @@ class _BaselineCache:
         known = self.errors.get(check)
         if not known:
             return []
-        return [key for key in eval_failures.error_keys(excerpt or "") if key not in set(known)]
+        new = [key for key in eval_failures.error_keys(excerpt or "") if key not in set(known)]
+        if new and self._same_failing_tests(known, excerpt):
+            # the same tests fail as on the promoted tree, with other values in their messages (a test
+            # comparing an exact set that already differed, now by one more item): not a new break
+            return []
+        return new
+
+    @staticmethod
+    def _same_failing_tests(known: List[str], excerpt: Optional[str]) -> bool:
+        """Every test the runner names failed in ``excerpt`` failed on the promoted tree too (its id is in
+        the baseline's error lines), and it names at least one."""
+        failed = eval_failures.failed_tests(excerpt or "")
+        if not failed:
+            return False
+        baseline = "\n".join(known)
+        for file, name in failed:
+            ident = re.sub(r"0x[0-9a-f]+|[0-9a-f]{8,}|\d+", "#", f"{file}::{name}".strip().lower() if file else name.strip().lower())
+            if ident not in baseline:
+                return False
+        return True
 
     def record_flaky(self, check: str, excerpt: Optional[str]) -> None:
         """``check`` failed, then passed on a re-run of the same code: remember it and its errors."""
