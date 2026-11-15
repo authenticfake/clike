@@ -4,6 +4,19 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+## [1.9.7] — 2026-11-15 — Delivered tests are extended, never relaxed
+
+### Added
+
+- **A candidate cannot relax a promoted REQ's test.** A candidate's copy of a delivered test file replaces
+  it in that REQ's regression (a shared test it extends); when an assertion line of the delivered version
+  is missing or rewritten in the copy, the regression now blocks
+  (`regression::<REQ>::reconciled-tests-assertions`) with the lines and the remedy, instead of a warning.
+  A pilot's repair turned `set(env) == set(names)` into `set(names) <= set(env)` in a release 1 test and its
+  regression passed. Added assertions are fine; a change declared with `supersedes` (or `/eval --supersede`)
+  lifts the block for that file. Python, Jest/Vitest/Playwright, Go, JUnit/AssertJ, RSpec and PHPUnit
+  assertion forms.
+
 ## [1.9.6] — 2026-11-15 — A new default, the old one still proven
 
 ### Added
