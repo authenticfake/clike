@@ -653,3 +653,14 @@ class DetachedProcessesTests(unittest.TestCase):
         tag = seen.get("CLIKE_CHECK_RUN")
         self.assertTrue(tag and len(tag) == 32)
         kill.assert_called_once_with(tag)
+
+
+def test_a_superseded_test_is_recognised_when_the_harness_copies_test_to_another_root():
+    # pilot v2: REQ-001's harness ran test/req_001/runtime.spec.ts as scope-tests/req_001/runtime.spec.ts
+    import eval_failures as ef
+    failed = ("scope-tests/req_001/runtime.spec.ts", "CFG-08: actual worker loss shows Not ready while API liveness stays healthy")
+    assert ef.test_matches(failed, "test/req_001/runtime.spec.ts::CFG-08: actual worker loss shows Not ready while API liveness stays healthy")
+    assert ef.test_matches(("e2e-tests/req_001/x.spec.ts", "UI-01: a"), "tests/req_001/x.spec.ts::UI-01: a")
+    # another file, or another test in the same file, is not the superseded one
+    assert not ef.test_matches(("scope-tests/req_002/runtime.spec.ts", failed[1]), "test/req_001/runtime.spec.ts::" + failed[1])
+    assert not ef.test_matches(("scope-tests/req_001/runtime.spec.ts", "UI-10: offline retry"), "test/req_001/runtime.spec.ts::" + failed[1])

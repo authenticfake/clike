@@ -203,12 +203,30 @@ def _segments(name: str) -> List[str]:
     return [s.strip() for s in re.split(r"::| > | › |\.(?=[A-Za-z_]\w*$)", name or "") if s.strip()]
 
 
+# A test root folder: test/, tests/, __tests__/, spec/, and the copies harnesses make of it (scope-tests/,
+# e2e-tests/): the path below it names the test file wherever the harness ran it from.
+_TEST_ROOT_RE = re.compile(r"^(?:[\w.]+[-_])?(?:tests?|specs?)$|^__tests__$", re.IGNORECASE)
+
+
+def _below_test_root(path: str) -> str:
+    parts = path.split("/")
+    for i, part in enumerate(parts[:-1]):
+        if _TEST_ROOT_RE.match(part):
+            return "/".join(parts[i + 1:])
+    return path
+
+
 def _same_file(a: str, b: str) -> bool:
     a, b = a.replace("\\", "/").lstrip("./"), b.replace("\\", "/").lstrip("./")
     if not a or not b:
         return True  # the runner did not print the file: the name decides
     a, b = re.sub(r"^(?:\.\./)+", "", a), re.sub(r"^(?:\.\./)+", "", b)
-    return a.endswith(b) or b.endswith(a)
+    if a.endswith(b) or b.endswith(a):
+        return True
+    # a harness that copies test/ to scope-tests/ prints the same file under another root (pilot v2: four
+    # superseded REQ-001 tests were not recognised and blocked the regression)
+    below_a, below_b = _below_test_root(a), _below_test_root(b)
+    return "/" in below_a and below_a == below_b
 
 
 def test_matches(failed: Tuple[str, str], ref: str) -> bool:

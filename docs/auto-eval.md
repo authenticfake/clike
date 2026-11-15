@@ -293,7 +293,11 @@ delivered REQs left there (`staged_root_deliverables`) and brings them to the ro
 
 With `clike.eval.regression` (default on), `/eval` and `/gate` also run the acceptance checks of
 every promoted REQ (`status: done` in `plan.json`) with **their own LTC commands**, against their source with the candidate's composed source
-overlaid on top, i.e. the code as it would be after promotion. These cases appear as
+overlaid on top, i.e. the code as it would be after promotion — with the dependencies after promotion too:
+the candidate's Python requirements are installed on top of the promoted REQ's, and a promoted REQ's npm
+manifest (`package.json` + lock, wherever its KIT pins one) is replaced by the candidate's at the same path when
+the candidate's holds every dependency of it at the same version (a version conflict keeps the promoted one).
+These cases appear as
 `regression::<REQ>::<check>`, run in `runs/eval/<REQ>/regression/<OTHER>/` (the other REQ's own
 eval results are not touched), and their acceptance locks are verified first.
 
