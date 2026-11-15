@@ -2805,7 +2805,8 @@ class EvalRunner:
             return skipped
 
         shutil.copytree(kit_root, work_kit_root, ignore=ignore, copy_function=_copy_if_present)
-        
+        self._adopt_candidate_node_manifests(work_kit_root)
+
         plan_path = self.project_root / "docs" / "harper" / "plan.json"
         try:
             plan_data = json.loads(plan_path.read_text(encoding="utf-8")) if plan_path.exists() else {}
@@ -5052,6 +5053,47 @@ class EvalRunner:
                 raise
         self._rerun_timeouts_alone(req_id, candidate_src, ran, superseded)
         return ran
+
+    def _adopt_candidate_node_manifests(self, work_kit_root: Path) -> List[str]:
+        """A promoted REQ's regression installs the candidate's npm dependencies when they are a superset.
+
+        A KIT may pin its harness dependencies in its own package.json (+ lock) and install from it: in a
+        regression it then builds the current source with the dependencies of its own time, and a candidate that
+        adds packages (a UI library) fails every promoted REQ with "Cannot find module" though no assertion
+        changed (pilot v2: 22 REQs blocked by a missing tailwindcss). When the candidate's manifest at the same
+        path holds every dependency of the promoted one at the same version, the promoted copy takes the
+        candidate's manifest and lock — the dependencies after promotion, as _candidate_requirements does for
+        Python. Any version conflict keeps the promoted manifest (the regression then reports it)."""
+        if not getattr(self, "regression", False) or not self.extra_src_roots:
+            return []
+        candidate_kit = Path(self.extra_src_roots[0]).parent
+        adopted: List[str] = []
+        for manifest in sorted(work_kit_root.rglob("package.json")):
+            if "node_modules" in manifest.parts:
+                continue
+            rel = manifest.relative_to(work_kit_root)
+            source = candidate_kit / rel
+            if not source.is_file() or source.resolve() == manifest.resolve():
+                continue
+            try:
+                mine = json.loads(manifest.read_text(encoding="utf-8"))
+                theirs = json.loads(source.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            def deps(data: Dict[str, Any]) -> Dict[str, Any]:
+                return {**(data.get("dependencies") or {}), **(data.get("devDependencies") or {})}
+            have, offered = deps(mine), deps(theirs)
+            if offered == have or any(offered.get(name) != version for name, version in have.items()):
+                continue
+            shutil.copy2(source, manifest)
+            lock = source.with_name("package-lock.json")
+            if lock.is_file():
+                shutil.copy2(lock, manifest.with_name("package-lock.json"))
+            adopted.append(rel.as_posix())
+        if adopted:
+            log.info("regression %s: candidate npm manifests adopted (superset of the promoted ones): %s",
+                     getattr(self, "eval_key", ""), ", ".join(adopted))
+        return adopted
 
     def _candidate_requirements(self) -> List[Path]:
         """The candidate's Python requirements, installed in a promoted REQ's regression environment

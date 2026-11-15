@@ -5,7 +5,7 @@
 [![Made with Python](https://img.shields.io/badge/Made%20with-Python%203.12-3776AB?logo=python)](https://www.python.org/)
 [![VS Code Extension](https://img.shields.io/badge/VS%20Code-Extension-007ACC?logo=visualstudiocode)](extensions/vscode)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.9.2-informational)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.9.3-informational)](CHANGELOG.md)
 
 > **From intent to impact.** CLike turns an idea into reviewed, tested and promotable software
 > through a governed lifecycle in which cloud models and local coding agents execute, while
@@ -62,11 +62,11 @@ Models and agents execute.  Eval and Gate decide.
 
 | Version | Date | Milestone |
 |---|---|---|
-| 1.8.4 | 2026-11 | A finalize that delegates: the cloud apply guard is found along the whole delegation chain of the apply wrappers (scripts and the Python modules they import), so a finalize whose guard sits two levels down is no longer rejected. See [CHANGELOG](CHANGELOG.md). |
 | 1.8.5 | 2026-11 | No silent waits: the questions a run waits on (local check, local setup, release publication, eval tools, KIT dependencies) are dialogs that stay on screen, and a local-agent run that is rejected or fails is in the telemetry with its outcome and usage. See [CHANGELOG](CHANGELOG.md). |
 | 1.9.0 | 2026-11 | UIs worth showing: every solution with a user interface is built with a design system chosen in `TECH_CONSTRAINTS.yaml` — shadcn/ui by default, or Fluent 2, IBM Carbon, MUI, Ant Design, or your own — and the KIT of every UI REQ gets its guide (setup, tokens, app shell, components), on every executor. See [CHANGELOG](CHANGELOG.md). |
 | 1.9.1 | 2026-11 | A README that shows: the extension page in VS Code, the Marketplace and Open VSX has working links and its logo. See [CHANGELOG](CHANGELOG.md). |
-| **1.9.2** | 2026-11 | Release deltas, read right: a companion delta titled with paths is recognised, and the release commit holds the UI prototype its KIT builds from. See [CHANGELOG](CHANGELOG.md). |
+| 1.9.2 | 2026-11 | Release deltas, read right: a companion delta titled with paths is recognised, and the release commit holds the UI prototype its KIT builds from. See [CHANGELOG](CHANGELOG.md). |
+| **1.9.3** | 2026-11 | Regression after a new dependency: promoted REQs are regressed with the npm dependencies a candidate adds (when they are a superset), and superseded tests run from another test root are recognised. See [CHANGELOG](CHANGELOG.md). |
 
 The last five versions; every version and change is in the [CHANGELOG](CHANGELOG.md).
 
@@ -180,7 +180,7 @@ VM with at least 4 GB, provider API keys for cloud models, optionally the Claude
 cp .env.example .env                      # provider keys + CLIKE_API_TOKEN=$(openssl rand -hex 32)
 cp docker/.env.example docker/.env        # CLIKE_PROJECTS_DIR = host folder containing your projects
 cd docker && podman-compose up -d --build # services on 127.0.0.1, wait until (healthy)
-code --install-extension ../extensions/vscode/clike-1.9.2.vsix
+code --install-extension ../extensions/vscode/clike-1.9.3.vsix
 ```
 
 In VS Code: **CLike: Set Service Token** (the `CLIKE_API_TOKEN` value). Full guide, local agents
