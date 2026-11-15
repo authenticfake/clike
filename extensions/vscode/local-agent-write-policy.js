@@ -248,9 +248,12 @@ function isExtendAuditPath(candidatePath) {
   return /^docs\/harper\/EXTEND_.+\.md$/.test(normalizeArtifactPath(candidatePath));
 }
 
+// /idea --extend: the release deltas of the project inputs and of the BMAD/UX companions (release-extend.js)
+const EXTEND_RELEASE_DELTA_RE = /^docs\/harper\/(?:inputs\/RELEASE_v\d+\.md|(?:bmad|ux)\/releases\/v\d+\/[^/]+\.md)$/;
+
 function isExtendAllowedOutput(candidatePath) {
   const rel = normalizeArtifactPath(candidatePath);
-  if (EXTEND_ALLOWED_EXACT.includes(rel)) return true;
+  if (EXTEND_ALLOWED_EXACT.includes(rel) || EXTEND_RELEASE_DELTA_RE.test(rel)) return true;
   if (EXTEND_ALLOWED_PREFIXES.some((prefix) => rel.startsWith(prefix))) return isLaneGuideFile(rel);
   return isExtendAuditPath(rel);
 }

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
@@ -73,6 +74,7 @@ class CompanionArtifactCollector:
 
         artifacts: List[CompanionArtifact] = []
         total_chars = 0
+        seen: set = set()
         for root, group in self._allowed_roots():
             if len(artifacts) >= self.max_file_count:
                 break
@@ -81,6 +83,9 @@ class CompanionArtifactCollector:
             for path in self._iter_files(root):
                 if len(artifacts) >= self.max_file_count:
                     break
+                if path in seen:
+                    continue
+                seen.add(path)
                 artifact = self._read_artifact(path, group, total_chars)
                 if artifact is None:
                     continue
@@ -90,13 +95,25 @@ class CompanionArtifactCollector:
         return [artifact.as_dict() for artifact in artifacts]
 
     def _allowed_roots(self) -> List[tuple[Path, str]]:
-        roots = [
+        # the delta /idea --extend wrote for the latest release first: what that release changes in the
+        # companions must not be cut by the budget behind the previous release's documents
+        roots = [(folder, "release_delta") for folder in (self._latest_release(self.doc_root / "bmad"), self._latest_release(self.doc_root / "ux")) if folder]
+        roots += [
             (self.doc_root / "bmad", "bmad_project"),
             (self.doc_root / "ux", "ux"),
         ]
         if self.req_id:
             roots.append((self.workspace_root / "runs" / "kit" / self.req_id / "docs", "req_docs"))
         return [(root.resolve(), group) for root, group in roots if self._is_within_workspace(root.resolve())]
+
+    @staticmethod
+    def _latest_release(companions: Path) -> Optional[Path]:
+        releases = companions / "releases"
+        try:
+            found = [(int(p.name[1:]), p) for p in releases.iterdir() if p.is_dir() and re.fullmatch(r"v\d+", p.name)]
+        except OSError:
+            return None
+        return max(found)[1] if found else None
 
     def _iter_files(self, root: Path) -> Iterable[Path]:
         stack = [root]

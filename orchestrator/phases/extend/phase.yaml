@@ -87,3 +87,7 @@ accepted_result_paths:
 - docs/harper/EXTEND_*.md
 - docs/harper/TECH_CONSTRAINTS.yaml
 - docs/harper/HOWTO_RUN.md
+# /idea --extend: the release deltas of the project inputs and of the BMAD/UX companions (extend_cascade.py)
+- docs/harper/inputs/RELEASE_v*.md
+- docs/harper/bmad/releases/v*/*.md
+- docs/harper/ux/releases/v*/*.md

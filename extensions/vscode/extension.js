@@ -5018,9 +5018,13 @@ async function cmdOpenChat(context) {
             }
             msg.__cascade = { ...rel, baselineInfo, dryRun: !!msg.dryRun, attachments: (msg.attachments || []).map((a) => a?.name || a?.path).filter(Boolean),
               // a project of areas: every new REQ names its area, a new module is declared and registered
-              areas: releaseExtend.projectAreas(root) };
+              areas: releaseExtend.projectAreas(root),
+              // the release's delta of the project inputs and of the BMAD/UX companions the later phases read
+              ...releaseExtend.releaseDeltas(root, rel.release) };
+            const deltaNames = [msg.__cascade.inputs_delta, ...msg.__cascade.companions.map((c) => c.delta)].filter(Boolean);
             panel.webview.postMessage({ type: 'echo', message: `▶ /idea --extend: ${rel.baseline} → ${rel.release}` +
-              ` (inputs: ${[...msg.__cascade.attachments, ...rel.inputs, ...rel.references].join(', ')})${msg.dryRun ? ' — dry run' : ''}` });
+              ` (inputs: ${[...msg.__cascade.attachments, ...rel.inputs, ...rel.references].join(', ')})${msg.dryRun ? ' — dry run' : ''}` +
+              (deltaNames.length ? `\n  release deltas: ${deltaNames.join(', ')}` : '') });
           }
 
           if (phase === 'finalize') {
@@ -5620,6 +5624,8 @@ async function cmdOpenChat(context) {
                 release: msg.__cascade.release,
                 baseline: msg.__cascade.baseline,
                 dryRun: !!msg.__cascade.dryRun,
+                ...(msg.__cascade.inputs_delta ? { inputs_delta: msg.__cascade.inputs_delta } : {}),
+                ...(msg.__cascade.companions && msg.__cascade.companions.length ? { companions: msg.__cascade.companions } : {}),
                 ...(msg.__cascade.areas && msg.__cascade.areas.length ? {
                   areas: msg.__cascade.areas.map((a) => ({ name: a.name, root: a.root, commands: a.commands || {} })),
                 } : {}),

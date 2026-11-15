@@ -46,6 +46,29 @@ class BmadCompanionCollectorTests(unittest.TestCase):
             self.assertEqual(groups["docs/harper/ux/DESIGN.md"], "ux")
             self.assertEqual(groups["runs/kit/REQ-001/docs/BMAD_DEV_STORY.md"], "req_docs")
 
+    def test_the_latest_release_delta_comes_first(self):
+        # a big previous-release companion must not push what the release changes out of the budget
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write(root / "docs/harper/bmad/architecture/ARCHITECTURE.md", "# Architecture\n" + "a" * 5000)
+            _write(root / "docs/harper/bmad/releases/v2/BMAD_ARCHITECTURE.md", "## ARCHITECTURE.md\nv2 boundary")
+            _write(root / "docs/harper/bmad/releases/v3/BMAD_ARCHITECTURE.md", "## ARCHITECTURE.md\nv3 adapter")
+            _write(root / "docs/harper/ux/releases/v3/UX.md", "## DESIGN.md\nv3 screen")
+
+            artifacts = CompanionArtifactCollector(
+                workspace_root=root,
+                doc_root=root / "docs/harper",
+                phase="kit",
+                methodology_context={"methodology": "bmad"},
+                max_total_snippet_chars=200,
+            ).collect()
+
+            paths = [item["path"] for item in artifacts]
+            self.assertEqual(paths[:2], ["docs/harper/bmad/releases/v3/BMAD_ARCHITECTURE.md", "docs/harper/ux/releases/v3/UX.md"])
+            self.assertEqual(artifacts[0]["source_group"], "release_delta")
+            self.assertIn("v3 adapter", artifacts[0]["snippet"])
+            self.assertEqual(len(paths), len(set(paths)))  # read once, not again under bmad/
+
     def test_ignores_unsafe_disallowed_and_binary_files(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as external:
             root = Path(tmp)

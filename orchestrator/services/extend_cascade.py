@@ -20,7 +20,7 @@ def extra_write_roots(cascade: Optional[Dict[str, Any]]) -> List[str]:
     if not cascade:
         return []
     adopt = str(cascade.get("mode") or "").lower() == "adopt"
-    return CASCADE_EXTRA_WRITE_ROOTS + (ADOPT_EXTRA_WRITE_ROOTS if adopt else [])
+    return CASCADE_EXTRA_WRITE_ROOTS + (ADOPT_EXTRA_WRITE_ROOTS if adopt else []) + delta_outputs(cascade)
 
 
 def extend_options(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -195,8 +195,72 @@ def cascade_rules(opts: Dict[str, Any]) -> List[str]:
         "changes (sections added or changed, and why); the delta table (REQ, change, title, amends / retires "
         "/ supersedes, dependsOn); impact on delivered REQs (areas and files touched); behaviors that stay "
         "unchanged; open questions; risks. CLike appends its own verification section.",
+        *release_inputs_rules(opts),
+        *companion_rules(opts),
         *area_rules(opts),
     ]
+
+
+INPUT_DELTA_SECTIONS = ("Requirements", "Edge cases", "Journeys", "Test scenarios", "Decisions", "Coverage")
+
+
+def release_inputs_rules(opts: Dict[str, Any]) -> List[str]:
+    """The release's delta of the project inputs /idea wrote (docs/harper/inputs/): /spec, /plan and the next
+    cascades read them first, so a release they do not list is invisible to them. One delta file per release —
+    the base files stay as /idea wrote them, and the delta fits the output of every executor."""
+    path = str(opts.get("inputs_delta") or "").strip()
+    if not path:
+        return []
+    release = str(opts.get("release") or "the release")
+    sections = ", ".join(f"`## {name}`" for name in INPUT_DELTA_SECTIONS)
+    return [
+        f"Project inputs: write `{path}`, the {release} delta of the structured inputs in docs/harper/inputs/ (the "
+        f"base files and the RELEASE_v*.md of earlier releases stay unchanged). Sections, in this order: {sections}; "
+        "a section with nothing for this release says `No change`. Same rules as /idea: tables, one testable "
+        "statement per requirement with its rule, values and source (file § section); edge cases derived per area "
+        "with concrete observable results; open decisions never turned into defaults.",
+        "IDs: a new item continues the numbering after the highest ID of its kind in docs/harper/inputs/ (base files "
+        "and earlier releases; never reuse one). A changed item keeps its ID, with `changed in "
+        f"{release}: <new statement>`; a removed one is `withdrawn in {release}`. `## Coverage` maps every section of "
+        f"the {release} sources to the IDs that cover it. The {release} REQs and SPEC statements cite these IDs.",
+    ]
+
+
+def companion_rules(opts: Dict[str, Any]) -> List[str]:
+    """A project with BMAD/UX companions (docs/harper/bmad/, docs/harper/ux/): every later phase still reads
+    them — the KIT too, ux/ as its UI reference — so a release that leaves them as they were builds on the
+    previous release's product, architecture and screens. The release writes their delta, one file per
+    companion folder, never a rewrite of the companions (they can be far larger than one output)."""
+    deltas = [d for d in (opts.get("companions") or []) if isinstance(d, dict) and d.get("delta") and d.get("files")]
+    if not deltas:
+        return []
+    release = str(opts.get("release") or "the release")
+    lines = [
+        f"Companion documents (BMAD/UX): for each delta below write the file with one `## <companion file name>` "
+        f"section per listed companion, holding what {release} adds or changes in that document, in the "
+        "document's own form (new or changed epics, stories and their acceptance, decisions, components and "
+        "boundaries, screens, states, journeys), citing the new REQ IDs; `No change: <why>` when the release does "
+        "not touch it. Never repeat unchanged content and never edit the companions themselves.",
+    ]
+    for delta in deltas:
+        files = []
+        for item in delta["files"]:
+            if not isinstance(item, dict) or not item.get("path"):
+                continue
+            outline = [str(h) for h in (item.get("outline") or []) if str(h).strip()][:30]
+            files.append(f"{item['path']}" + (f" (sections: {'; '.join(outline)})" if outline else ""))
+        if files:
+            lines.append(f"`{delta['delta']}` covers: " + " | ".join(files))
+    return lines if len(lines) > 1 else []
+
+
+def delta_outputs(opts: Optional[Dict[str, Any]]) -> List[str]:
+    """The delta files a cascade writes besides IDEA, SPEC, PLAN and the report."""
+    if not opts:
+        return []
+    out = [str(opts.get("inputs_delta") or "").strip()]
+    out += [str(d.get("delta") or "").strip() for d in (opts.get("companions") or []) if isinstance(d, dict)]
+    return [p for p in out if p]
 
 
 def area_rules(opts: Dict[str, Any]) -> List[str]:
@@ -239,8 +303,10 @@ def cloud_extend_section(payload: Dict[str, Any]) -> str:
         lines.append("- source: the attachments of this run")
     if cascade:
         lines += ["", f"### {cascade_title(cascade)}", *[f"- {rule}" for rule in cascade_rules(cascade)]]
+        deltas = delta_outputs(cascade)
         lines += ["- Return the complete files: docs/harper/IDEA.md, docs/harper/SPEC.md, docs/harper/PLAN.md, "
                   "docs/harper/plan.json, the EXTEND report, and docs/harper/TECH_CONSTRAINTS.yaml when it changes."
+                  + (f" Also the release deltas: {', '.join(deltas)}." if deltas else "")
                   + (" Also docs/harper/TECH_CONSTRAINTS.yaml, docs/harper/HOWTO_RUN.md, the lane guides and the root "
                      "README.md (the existing one, integrated)." if str(cascade.get("mode") or "").lower() == "adopt" else "")]
         lines += adopt_documents(cascade)
