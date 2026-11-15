@@ -389,8 +389,8 @@ and of what else decides it (the promoted state, CLike and its environment, the 
 next eval reuses it when the digest is the same and it did not block, marked `Reused: … byte-identical
 workspace`: an eval run again after an interruption resumes, and a repair that changed only what the
 promoted REQs do not receive (the candidate's own tests, CI scripts or docs) skips their regression. A
-change to the candidate's source changes every workspace: everything runs again. A blocking result is
-never reused, and nothing is reused for longer than a day.
+change to the candidate's source changes every workspace: everything runs again. A blocking or unstable
+result (passed only on a re-run) is never reused, and nothing is reused for longer than a day.
 
 **Disk.** Before an eval composes its workspaces it checks the free space on the eval volume
 (`CLIKE_EVAL_MIN_FREE_GB`, default 10, and at least 15%). Below it the work directories of the project's

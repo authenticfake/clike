@@ -873,7 +873,7 @@ class _RegressionReuse:
     the candidate's source changes every workspace and nothing is reused; one that changes only what a
     promoted REQ does not receive (the candidate's own tests, its CI scripts, its docs) skips that
     regression, and so does an eval run again after it was interrupted. Only a regression that did not
-    block is kept: a blocking failure always runs again."""
+    block and was stable is kept: a blocking or unstable result runs again."""
 
     def __init__(self, path: Path, key: str) -> None:
         self.path, self.key = path, key
@@ -894,7 +894,11 @@ class _RegressionReuse:
         return cases
 
     def save(self, digest: str, cases: List["EvalCase"]) -> None:
-        if not digest or not cases or any(not c.passed and c.blocking for c in cases):
+        # a blocking result runs again, and so does an unstable one (passed only on a re-run, known
+        # unstable, slowed by the parallel load): it is observed again, never carried forward
+        unstable = any(_NONDETERMINISTIC_NOTE in f"{c.stdout or ''}{c.stderr or ''}{c.excerpt or ''}"
+                       or _CONTENTION_NOTE in f"{c.stdout or ''}{c.stderr or ''}{c.excerpt or ''}" for c in cases)
+        if not digest or not cases or unstable or any(not c.passed and c.blocking for c in cases):
             try:
                 self.path.unlink()
             except OSError:
