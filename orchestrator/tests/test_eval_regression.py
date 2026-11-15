@@ -482,6 +482,38 @@ class DeclaredRegressionEnvTests(_RegressionProject):
         self.assertEqual(declared_regression_env(None), {})
 
 
+class ChangedAssertionTests(_RegressionProject):
+    """A candidate's copy of a promoted REQ's test may add to it, never relax it: a repair turned
+    `set(env) == set(names)` into `set(names) <= set(env)` and the promoted REQ's regression passed."""
+
+    def _candidate_copy(self, text):
+        (self.proj / "runs" / "kit" / "REQ-002" / "test" / "test_pricing.py").write_text(text)
+        body = self._post("/v1/eval/run", "REQ-002", regression=True).json()
+        return {c["name"]: c for c in body["cases"]}
+
+    def test_a_relaxed_assertion_blocks(self):
+        cases = self._candidate_copy("from pricing import price\nassert price() >= 0\n")
+        case = cases.get("regression::REQ-001::reconciled-tests-assertions")
+        self.assertIsNotNone(case, list(cases))
+        self.assertFalse(case["passed"])
+        self.assertTrue(case["blocking"])
+        self.assertIn("assert price() == 10", case["stdout"])
+        self.assertIn("--supersede REQ-001#", case["stdout"])
+
+    def test_an_added_assertion_does_not(self):
+        cases = self._candidate_copy("from pricing import price\nassert price() == 10\nassert price() > 0\n")
+        self.assertNotIn("regression::REQ-001::reconciled-tests-assertions", cases)
+        self.assertIn("regression::REQ-001::reconciled-tests", cases)  # still shown for review
+
+    def test_the_assertion_lines_compared(self):
+        from eval_runner import changed_assertions
+
+        self.assertEqual(changed_assertions("x = 1\n    assert a == b\n", "x = 2\nassert  a == b\nassert c\n"), [])
+        self.assertEqual(changed_assertions("await expect(page.getByText('A')).toBeVisible();\n", "await page.goto('/');\n"),
+                         ["await expect(page.getByText('A')).toBeVisible();"])
+        self.assertEqual(changed_assertions("self.assertEqual(a, 1)\n", "self.assertTrue(a)\n"), ["self.assertEqual(a, 1)"])
+
+
 class PromotedKitCompositionTests(_RegressionProject):
     """A promoted KIT is already in the canonical tree, merged with what later REQs changed: its
     stale KIT copy must not shadow the canonical files, neither as a dependency nor in its own

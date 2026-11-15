@@ -653,6 +653,22 @@ def _copy_if_present(src: str, dst: str) -> None:
 
 
 _REGRESSION_ENV_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
+# a line of a test that asserts: pytest/unittest, Jest/Vitest/Playwright, Go, JUnit/AssertJ, RSpec, PHPUnit
+_ASSERTION_LINE_RE = re.compile(
+    r"\bassert\w*\b|\bexpect\s*\(|\bshould\b|\.to(Be|Equal|Have|Contain|Match|Throw)\w*\(|"
+    r"\bt\.(Error|Fatal)f?\(|\brequire\.\w+\(|assertThat\(|\$this->assert\w+\(")
+
+
+def changed_assertions(promoted: str, candidate: str) -> List[str]:
+    """Assertion lines of a promoted REQ's test that the candidate's version of the same file no
+    longer has as they were (removed or rewritten: `==` relaxed to `<=`, an expectation dropped).
+    Whitespace does not count; added assertions are not a change."""
+    def lines(text: str) -> List[str]:
+        return [re.sub(r"\s+", " ", line).strip() for line in text.splitlines() if _ASSERTION_LINE_RE.search(line)]
+    kept = set(lines(candidate))
+    return [line for line in lines(promoted) if line not in kept]
+
+
 
 
 def declared_regression_env(req: Optional[Dict[str, Any]]) -> Dict[str, str]:
@@ -1110,6 +1126,9 @@ class EvalRunner:
         # Regression runs: the candidate KIT, whose copies of the regressed REQ's test files win (a
         # reconciled test of that REQ is what promotion delivers). Only files the REQ already has.
         self.extra_test_roots = list(extra_test_roots or [])
+        # test files of a regressed REQ the candidate's version replaces with assertions changed
+        self.weakened_tests: Dict[str, List[str]] = {}
+        self._overlay_lost_assertions: Dict[str, List[str]] = {}
         self.reconciled_tests: List[str] = []
         # A regression run re-checks a promoted REQ: its own KIT source is already in the canonical
         # tree (merged with what later REQs changed), so the stale KIT copy is not overlaid.
@@ -2178,6 +2197,13 @@ class EvalRunner:
                     continue  # the candidate carries the promoted file unchanged
             except OSError:
                 continue
+            try:
+                lost = changed_assertions(target.read_text(encoding="utf-8", errors="replace"),
+                                          content.decode("utf-8", errors="replace"))
+            except OSError:
+                lost = []
+            if lost:
+                self._overlay_lost_assertions[rel.as_posix()] = lost
             shutil.copy2(item, target)
             changed.append(rel.as_posix())
         if not changed:
@@ -3091,14 +3117,15 @@ class EvalRunner:
                             self.project_root / logical_root, composed_logical_root, taken, exclude=_SHARED_ROOT_TEST_FILES
                         )
                     for extra_test in self.extra_test_roots:
-                        self.reconciled_tests += [
-                            f"{logical_root}/{rel}"
-                            for rel in self._overlay_existing_files(
-                                Path(extra_test) / logical_root,
-                                composed_logical_root,
-                                canonical=self.project_root / logical_root,
-                            )
-                        ]
+                        self._overlay_lost_assertions = {}
+                        for rel in self._overlay_existing_files(
+                            Path(extra_test) / logical_root,
+                            composed_logical_root,
+                            canonical=self.project_root / logical_root,
+                        ):
+                            self.reconciled_tests.append(f"{logical_root}/{rel}")
+                            if rel in self._overlay_lost_assertions:
+                                self.weakened_tests[f"{logical_root}/{rel}"] = self._overlay_lost_assertions[rel]
 
                 if composed_logical_root.exists():
                     target_logical_root = work_kit_root / logical_root
@@ -5527,6 +5554,21 @@ class EvalRunner:
                 stderr="",
             ))
             log.info("regression %s: candidate reconciles %d test file(s)", other, len(files))
+        # a delivered test is the promoted REQ's proof: the candidate may extend it, never relax it.
+        # Changed assertions block unless the release declared the change (supersedes).
+        declared_files = {ref.split("::", 1)[0] for ref in (superseded.get(other) or {}) if "::" in ref}
+        weakened = {f: lines for f, lines in runner.weakened_tests.items() if f not in declared_files}
+        if weakened:
+            shown = "\n".join(f"- {f}:\n" + "\n".join(f"    {line[:200]}" for line in lines[:5]) for f, lines in sorted(weakened.items()))
+            cases.append(EvalCase(
+                name=f"regression::{other}::reconciled-tests-assertions", passed=False, code=1, blocking=True, stderr="",
+                stdout=(f"[CLike EvalRunner] Changed assertions in {other}'s delivered tests: this candidate's version of "
+                        f"{len(weakened)} test file(s) of {other} no longer has these assertions as they were:\n{shown}\n"
+                        f"A delivered test proves what {other} promised: make the product satisfy it, and keep the test "
+                        "as delivered (remove the candidate's copy, or only add to it). If the release changes that "
+                        f"behavior on purpose, declare it: /eval {req_id} --supersede {other}#<path::test name> \"<why>\"."),
+            ))
+            log.info("regression %s: candidate changes assertions of %d delivered test file(s)", other, len(weakened))
         baseline = self._baseline_cache(req_id, other)
         self._retry_failed_regression_tests(runner, profile, ltc, other, report, known_failing=baseline.failing(), baseline=baseline)
         self._mark_preexisting_regression_failures(req_id, profile, ltc, other, report, baseline=baseline)

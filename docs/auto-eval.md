@@ -348,6 +348,14 @@ Dependencies that are not promoted yet are not regression targets: their source 
 of the candidate's eval (promoted `src/` + dependency KITs + current KIT), and a REQ that never
 passed has nothing to regress from.
 
+A candidate may carry its own version of a promoted REQ's test file (a shared test it extends): the
+regression runs that version and lists it (`regression::<REQ>::reconciled-tests`, a warning to
+review). It may **add** to the test, never relax it: when an assertion line of the delivered version
+is missing or rewritten in the candidate's (`==` relaxed to `<=`, an expectation dropped), the
+regression blocks (`regression::<REQ>::reconciled-tests-assertions`) with the lines and the remedy —
+make the product satisfy the test, or declare the change (`/eval <REQ> --supersede REQ-x#path::name`,
+or `supersedes` from `/idea --extend`), which lifts the block for that file.
+
 A MODIFIED REQ that changes a **default behind a setting** and keeps the old behavior selectable (a
 new default UI theme, the release 1 one by configuration) declares the setting its regression runs
 the promoted REQs' unchanged checks under: `regression_env: {"LG_UI_THEME": "classic"}` in plan.json
