@@ -348,6 +348,15 @@ Dependencies that are not promoted yet are not regression targets: their source 
 of the candidate's eval (promoted `src/` + dependency KITs + current KIT), and a REQ that never
 passed has nothing to regress from.
 
+A MODIFIED REQ that changes a **default behind a setting** and keeps the old behavior selectable (a
+new default UI theme, the release 1 one by configuration) declares the setting its regression runs
+the promoted REQs' unchanged checks under: `regression_env: {"LG_UI_THEME": "classic"}` in plan.json
+(`/idea --extend` writes it; plain settings only — names that look like credentials, `CLIKE_*`,
+`PATH`-like variables, nested or long values are ignored). Every promoted check still runs and still
+blocks: it proves its behavior under the setting it was written for, while the new default is proven
+by the candidate's own checks. The report says it (`env::regression-env`), and it is part of what a
+reused regression must match.
+
 Declared changes of a release (`/idea --extend`) narrow the regression, when the REQ that declares
 them is promoted or is the candidate: the checks a MODIFIED REQ `supersedes` (`REQ-x#check`) are
 not run in the amended REQ's regression, in whatever section of its LTC they are declared (reported
