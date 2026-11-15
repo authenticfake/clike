@@ -1031,7 +1031,7 @@ async function runKitCommand(plan, cmdArgs) {
   if (!depsOk) {
     const pick = await vscode.window.showWarningMessage(
       `Dependencies for ${targetReqId} are not all 'done'. Proceed anyway?`,
-      'Proceed', 'Cancel'
+      { modal: true }, 'Proceed', 'Cancel'
     );
     if (pick !== 'Proceed') return;
   }
@@ -1062,7 +1062,7 @@ async function runEvalGateCommand( plan, cmdArgs) {
   if (!depsOk) {
     const pick = await vscode.window.showWarningMessage(
       `Dependencies for ${targetReqId} are not all 'done'. Proceed anyway?`,
-      'Proceed', 'Cancel'
+      { modal: true }, 'Proceed', 'Cancel'
     );
     if (pick !== 'Proceed') return;
   }

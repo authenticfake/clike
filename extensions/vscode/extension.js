@@ -89,7 +89,7 @@ async function offerRelease(ws, settings, status, msg, say, { manual = false } =
   const choice = await vscode.window.showInformationMessage(
     `Release ${info.release} of ${info.project} is tagged. Publish the GitHub Release on ${info.repo}? ` +
     `The tag ${info.tag} is pushed and the release is public (${releasePublish.changeSummary(info.reqs)}${info.prerelease ? ', pre-release: passed with warnings' : ''}).`,
-    publish, open);
+    { modal: true }, publish, open);
   if (choice === open) {
     openReadingMode(vscode.Uri.joinPath(ws, ...notes.split('/')));
     say(`ℹ RELEASE ${info.release}: not published. To publish later: ${publishCmd}`);
@@ -7684,7 +7684,7 @@ async function cmdOpenChat(context) {
       ask: async (items) => {
         if (autopilotRun) return 'no'; // unattended: the missing tool parks the REQ with its reason
         const pick = await vscode.window.showInformationMessage(
-          questionText(reqId, items), 'Install', 'Always for this project', 'No'
+          questionText(reqId, items), { modal: true }, 'Install', 'Always for this project', 'No'
         );
         return pick === 'Install' ? 'install' : pick === 'Always for this project' ? 'always' : 'no';
       },
@@ -7892,9 +7892,11 @@ async function cmdOpenChat(context) {
         return null;
       }
       const go = 'Run local check';
+      // modal: a notification hides itself after a few seconds and the finalize waited on it for hours
+      say(`⏸ LOCAL CHECK: waiting for your answer in the VS Code dialog (run ${script.rel} on this machine, or skip).`);
       const choice = await vscode.window.showInformationMessage(
         `The solution passed in the CLike sandbox. Check it on this machine too? ${script.rel} builds and starts it as you ` +
-        'start it (containers when installed), runs the smoke and stops it — a running local stack is stopped.', go, 'Skip');
+        'start it (containers when installed), runs the smoke and stops it — a running local stack is stopped.', { modal: true }, go, 'Skip');
       if (choice !== go) {
         say(`ℹ LOCAL CHECK skipped: the default local start is not verified on this machine (${script.rel}).`);
         return null;
@@ -7961,7 +7963,7 @@ async function cmdOpenChat(context) {
     const choices = [setup && configure, start && run].filter(Boolean);
     const choice = await vscode.window.showInformationMessage(
       `The solution passed the CLike verification. Prepare it on this machine (${[setup, start].filter(Boolean).join(', ')})? ` +
-      `Values only you can give are listed in ${finalizeVerify.REPORT_PATH}.`, ...choices);
+      `Values only you can give are listed in ${finalizeVerify.REPORT_PATH}.`, { modal: true }, ...choices);
     if (!choice) return;
     const command = (rel) => win ? `powershell -ExecutionPolicy Bypass -File ${rel}` : `bash ${rel}`;
     const steps = [setup && command(setup), choice === run && start && command(start)].filter(Boolean);

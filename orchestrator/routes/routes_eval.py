@@ -752,15 +752,16 @@ async def eval_run(
 
     if not is_manual:
         rep = _with_structural_cases(rep, _required_output_blockers(prj, args.req_id or rep.req_id))
-    if not is_manual and not args.checks and not targeted and not agent_check:
+    verdict_req = _effective_req_id(args.req_id, ltc, profile_path)   # None for the solution profile: it has no gate
+    if not is_manual and not args.checks and not targeted and not agent_check and verdict_req:
         # the full verdict, reusable by the gate while its inputs stay the same
         try:
-            eval_verdicts.record(prj, _effective_req_id(args.req_id, ltc, profile_path), bool(args.regression), report_to_dict(rep))
+            eval_verdicts.record(prj, verdict_req, bool(args.regression), report_to_dict(rep))
         except Exception as exc:  # an optimisation only
             log.warning("eval verdict not recorded: %s", exc)
-    if targeted and not is_manual and not args.checks and not agent_check:
+    if targeted and not is_manual and not args.checks and not agent_check and verdict_req:
         try:
-            eval_verdicts.record_targeted(prj, _effective_req_id(args.req_id, ltc, profile_path), report_to_dict(rep))
+            eval_verdicts.record_targeted(prj, verdict_req, report_to_dict(rep))
         except Exception as exc:  # an optimisation only
             log.warning("targeted results not recorded: %s", exc)
     payload = _eval_payload(rep, args.req_id)
