@@ -652,6 +652,30 @@ def _copy_if_present(src: str, dst: str) -> None:
         pass
 
 
+_REGRESSION_ENV_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
+
+
+def declared_regression_env(req: Optional[Dict[str, Any]]) -> Dict[str, str]:
+    """The environment a MODIFIED REQ declares for the regression of the promoted REQs
+    (plan.json ``regression_env``): the setting under which their unchanged tests still prove what
+    they proved, when the candidate changes a default (a new default UI theme: the release 1 suites
+    run under ``classic``, the new default has the candidate's own checks). Plain settings only:
+    no credential names, short values, at most 20."""
+    raw = (req or {}).get("regression_env")
+    if not isinstance(raw, dict):
+        return {}
+    env: Dict[str, str] = {}
+    for name, value in raw.items():
+        name = str(name)
+        if (len(env) >= 20 or not _REGRESSION_ENV_NAME_RE.match(name) or _SECRET_ENV_NAME_RE.search(name)
+                or name.startswith("CLIKE_") or name in {"PATH", "PYTHONPATH", "NODE_PATH", "HOME"}
+                or isinstance(value, (dict, list)) or len(str(value)) > 200):
+            log.warning("regression_env %s ignored: not a plain setting", name)
+            continue
+        env[name] = str(value)
+    return env
+
+
 def scrubbed_process_env() -> Dict[str, str]:
     """Copy of os.environ without credentials, used as the base env of every eval command. The
     tools CLike installed (eval_tools) are on its PATH, after the image's own programs."""
@@ -4227,6 +4251,10 @@ class EvalRunner:
         # the runtimes the LTC declares beyond the image (Python 3.14, Node 24) and uv's own environment
         eval_env, self._runtime_python = eval_runtimes.runtime_env(
             eval_env, ltc or {}, self._venv_dir(eff_req).with_name(f"{self._safe_req_id(eff_req)}-uv"))
+        declared = getattr(self, "_declared_env", None)
+        if self.regression and declared:
+            # the candidate's declared regression environment (plan.json regression_env)
+            eval_env = {**eval_env, **declared}
 
         if requirements_file:
             eval_env, setup_cases = self._ensure_eval_venv(
@@ -4969,6 +4997,7 @@ class EvalRunner:
                     cancel_event=self.cancel_event,
                     regression=True,
                 )
+                baseline_runner._declared_env = getattr(self, "_regression_env", None) or {}
                 rerun = baseline_runner.run_profile(profile=str(profile), ltc=ltc, req_id=other, checks=retry or None)
             except Exception as exc:  # the first verdict stands
                 log.warning("regression baseline of %s failed to run: %s", other, exc)
@@ -5160,6 +5189,7 @@ class EvalRunner:
         self._superseded_test_refs = self.superseded_tests(req_id)
         candidate = next((r for r in self._plan_reqs() if str(r["id"]) == str(req_id)), {})
         self._candidate_amends = [str(a) for a in (candidate.get("amends") or [])]
+        self._regression_env = declared_regression_env(candidate)
         # the REQ promises the amended REQs' tests keep passing: no supersede to suggest
         self._candidate_keeps = bool(_KEEPS_TESTS_RE.search(" ".join(str(a) for a in candidate.get("acceptance") or [])))
         others = self.regression_req_ids(req_id)
@@ -5188,10 +5218,20 @@ class EvalRunner:
 
         workers = min(regression_workers(), len(others))
         self._regression_workers_used = workers
+        declared_note: List[EvalCase] = []
+        if self._regression_env and others:
+            settings = ", ".join(f"{k}={v}" for k, v in sorted(self._regression_env.items()))
+            log.info("regression of %s: declared environment %s", req_id, settings)
+            declared_note = [EvalCase(
+                name="env::regression-env", passed=True, code=0, blocking=False, stderr="",
+                stdout=(f"[CLike EvalRunner] The promoted REQs' checks ran with the environment {req_id} declares in "
+                        f"plan.json regression_env: {settings}. Their tests prove what they proved under it; the new "
+                        f"default is proven by {req_id}'s own checks."),
+            )]
         self._promoted_state_digest(req_id)  # once, before the workers share it
         self._progress(phase="regression", regression_total=len(others), regression_done=0, regression_current=[], current=None)
         if workers <= 1:
-            return in_plan_order({other: self._regress_tracked(req_id, other, candidate_src, superseded) for other in others})
+            return declared_note + in_plan_order({other: self._regress_tracked(req_id, other, candidate_src, superseded) for other in others})
         # Each promoted REQ has its own work dir, venv, test databases and service ports: they run
         # side by side, and their cases are reported in plan order as before.
         log.info("regression of %s: %d promoted REQ(s), %d at a time", req_id, len(others), workers)
@@ -5204,7 +5244,7 @@ class EvalRunner:
                     future.cancel()
                 raise
         self._rerun_timeouts_alone(req_id, candidate_src, ran, superseded)
-        return ran
+        return declared_note + ran
 
     def _adopt_candidate_node_manifests(self, work_kit_root: Path) -> List[str]:
         """A promoted REQ's regression installs the candidate's npm dependencies when they are a superset.
@@ -5261,7 +5301,7 @@ class EvalRunner:
 
     def _regression_runner(self, req_id: Optional[str], other: str, candidate_src: Path) -> "EvalRunner":
         """The runner of a promoted REQ's checks with the candidate overlaid (the state after promotion)."""
-        return EvalRunner(
+        runner = EvalRunner(
             self.project_root,
             eval_key=f"{self._safe_req_id(req_id)}/regression/{self._safe_req_id(other)}",
             extra_src_roots=[candidate_src],
@@ -5270,6 +5310,8 @@ class EvalRunner:
             cancel_event=self.cancel_event,
             regression=True,
         )
+        runner._declared_env = getattr(self, "_regression_env", None) or {}
+        return runner
 
     def _mark_superseded_tests(self, other: str, report: EvalReport) -> None:
         """A failing check of a promoted REQ whose failed tests are all tests a MODIFIED REQ superseded:
@@ -5524,6 +5566,7 @@ class EvalRunner:
                 "amends": getattr(self, "_candidate_amends", []),
                 "keeps": getattr(self, "_candidate_keeps", False),
                 "workers": regression_workers(),
+                "regression_env": getattr(self, "_regression_env", None) or {},
             }, sort_keys=True, default=str)
             path = base / ".regression-results" / self._safe_req_id(req_id) / f"{self._safe_req_id(other)}.json"
             return _RegressionReuse(path, key)

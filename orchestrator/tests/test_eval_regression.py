@@ -436,6 +436,52 @@ class RegressionReuseTests(_RegressionProject):
             self.assertIsNone(EvalRunner(self.proj)._disk_guard("REQ-002"))
 
 
+class DeclaredRegressionEnvTests(_RegressionProject):
+    """A MODIFIED REQ that changes a default (a new default UI theme) declares the environment its
+    regression runs the promoted REQs' unchanged tests in (plan.json regression_env)."""
+
+    def _theme_dependent_req001(self):
+        # the candidate makes a new default: REQ-001's behaviour holds under the old one (classic)
+        (self.proj / "runs" / "kit" / "REQ-002" / "src" / "pricing.py").write_text(
+            "import os\n\ndef price():\n    return 10 if os.environ.get('LG_UI_THEME', 'workbench') == 'classic' else 0\n")
+
+    def _declare(self, env):
+        path = self.proj / "docs" / "harper" / "plan.json"
+        plan = json.loads(path.read_text())
+        plan["reqs"][1]["regression_env"] = env
+        path.write_text(json.dumps(plan))
+
+    def _req001(self, body):
+        return {c["name"]: c for c in body["cases"] if c["name"].startswith("regression::REQ-001::")}
+
+    def test_the_declared_environment_reaches_the_promoted_reqs_checks_only(self):
+        # the candidate's own test reads the variable unset: the declared env is not applied to it
+        self._kit("REQ-002", "checkout", "import os\n\ndef total(n):\n    return n * 10\n",
+                  "import os\nfrom checkout import total\nassert 'LG_UI_THEME' not in os.environ\nassert total(2) == 20\n")
+        self._theme_dependent_req001()
+        before = self._req001(self._post("/v1/eval/run", "REQ-002", regression=True).json())
+        self.assertTrue(any(not c["passed"] and c["blocking"] for c in before.values()), before)
+        self._declare({"LG_UI_THEME": "classic", "OPENAI_API_KEY": "x", "PATH": "/tmp", "lower": "x"})
+        body = self._post("/v1/eval/run", "REQ-002", regression=True).json()
+        after = self._req001(body)
+        self.assertTrue(after and all(c["passed"] or not c["blocking"] for c in after.values()), after)
+        own = [c for c in body["cases"] if c["name"] == "unit"]
+        self.assertTrue(own and own[0]["passed"], own)
+        note = next(c for c in body["cases"] if c["name"] == "env::regression-env")
+        self.assertIn("LG_UI_THEME=classic", note["stdout"])
+        self.assertNotIn("OPENAI_API_KEY", note["stdout"])
+        self.assertNotIn("PATH=", note["stdout"])
+
+    def test_only_plain_settings_are_accepted(self):
+        from eval_runner import declared_regression_env
+
+        self.assertEqual(declared_regression_env({"regression_env": {
+            "LG_UI_THEME": "classic", "DB_PASSWORD": "x", "GITHUB_TOKEN": "x", "CLIKE_EVAL_ROOT": "/", "PYTHONPATH": "/x",
+            "lower_case": "x", "NESTED": {"a": 1}, "LONG": "x" * 300}}), {"LG_UI_THEME": "classic"})
+        self.assertEqual(declared_regression_env({"regression_env": ["LG_UI_THEME=classic"]}), {})
+        self.assertEqual(declared_regression_env(None), {})
+
+
 class PromotedKitCompositionTests(_RegressionProject):
     """A promoted KIT is already in the canonical tree, merged with what later REQs changed: its
     stale KIT copy must not shadow the canonical files, neither as a dependency nor in its own
