@@ -4,6 +4,17 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+## [1.8.4] — 2026-11-15 — A finalize that delegates
+
+### Fixed
+
+- `/finalize` is no longer rejected for a cloud apply guard it has: the `CLIKE_ALLOW_CLOUD_MUTATION` check is
+  looked for along the whole delegation chain of the apply wrappers (scripts run by path and Python modules they
+  import, a few levels down), not only in the script the wrappers name. A pilot's finalize wrote wrappers that run
+  `solution_local.py`, which imports `solution_ops`, the module that fails closed: the run was rejected
+  (`finalize_cloud_apply_guard_missing`) and nothing was committed. A guard in a module the apply path never
+  reaches still does not count.
+
 ## [1.8.3] — 2026-11-15 — Releases with their inputs
 
 ### Fixed
