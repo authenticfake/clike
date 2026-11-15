@@ -89,7 +89,7 @@ async function offerRelease(ws, settings, status, msg, say, { manual = false } =
   const choice = await vscode.window.showInformationMessage(
     `Release ${info.release} of ${info.project} is tagged. Publish the GitHub Release on ${info.repo}? ` +
     `The tag ${info.tag} is pushed and the release is public (${releasePublish.changeSummary(info.reqs)}${info.prerelease ? ', pre-release: passed with warnings' : ''}).`,
-    publish, open);
+    { modal: true }, publish, open);
   if (choice === open) {
     openReadingMode(vscode.Uri.joinPath(ws, ...notes.split('/')));
     say(`ℹ RELEASE ${info.release}: not published. To publish later: ${publishCmd}`);
@@ -1397,6 +1397,7 @@ async function executeLocalAgentPackage({
   const rawAgentStdout = agentResult.stdout || '';
   agentResult.stdout = agentRun.text;
   log(`[harperRun][agent][telemetry] ${JSON.stringify(agentRun.telemetry)}`);
+  agentRunTelemetry.set(runId, { ...agentRun.telemetry, req_id: reqForAgent });
 
   const candidateFiles = (isFinalize)
     ? await collectFinalizeCandidateFiles(wsroot, { baseline: finalizeVerify.readDirtyBaseline(toFsPath(wsroot)) })
@@ -2513,6 +2514,26 @@ function cancelMcpRun(runId) {
 }
 
 /** Modal confirmation, or for an MCP / autopilot run the caller's confirm flag (nobody is there to click). */
+// The usage of each local-agent run, by run id, until the run ends: a run CLike rejects or that fails
+// after the agent worked is recorded in the telemetry too (its tokens and time were spent). A finalize
+// rejected after 35 minutes of agent work left no telemetry line.
+const agentRunTelemetry = new Map();
+
+async function recordFailedAgentRun(wsroot, projectId, runId, phase, errText) {
+  const t = agentRunTelemetry.get(runId);
+  agentRunTelemetry.delete(runId);
+  if (!t) return;
+  const rejected = /^Orchestrator rejected local-agent result:/i.test(String(errText || ''));
+  try {
+    await persistTelemetryVSCode(wsroot, projectId, runId, phase, {
+      ...t,
+      outcome: { status: rejected ? 'REJECTED' : 'FAILED', reason: String(errText || '').slice(0, 300) },
+    });
+  } catch (e) {
+    log(`[telemetry] failed agent run not recorded: ${e?.message || e}`);
+  }
+}
+
 async function confirmOrMcp(msg, text, go) {
   if (msg && (msg.__fromMcp || msg.__unattended)) return msg.confirm === true;
   const choice = await vscode.window.showWarningMessage(text, { modal: true }, go);
@@ -5770,6 +5791,7 @@ async function cmdOpenChat(context) {
             } catch (err) {
               const failMsg = `[harperRun][agent] ${err?.message || String(err)}`;
               log(failMsg);
+              await recordFailedAgentRun(wsroot, project_id, runId, phase, err?.message || String(err));
               // the developer stopped the agent: no cloud fallback, nothing written
               if (harperCancelled()) return discardCancelledRun();
 
@@ -5989,6 +6011,7 @@ async function cmdOpenChat(context) {
             // Local-agent runs report their own executor/model/usage (_out.telemetry);
             // cloud runs are attributed to the selected provider and model.
             const t = _out?.telemetry || {};
+            agentRunTelemetry.delete(runId);
             const isAgentRun = t.execution === 'local_agent';
             await persistTelemetryVSCode(wsroot, project_id, runId, phase, {
               ...t,
@@ -7684,7 +7707,7 @@ async function cmdOpenChat(context) {
       ask: async (items) => {
         if (autopilotRun) return 'no'; // unattended: the missing tool parks the REQ with its reason
         const pick = await vscode.window.showInformationMessage(
-          questionText(reqId, items), 'Install', 'Always for this project', 'No'
+          questionText(reqId, items), { modal: true }, 'Install', 'Always for this project', 'No'
         );
         return pick === 'Install' ? 'install' : pick === 'Always for this project' ? 'always' : 'no';
       },
@@ -7892,9 +7915,11 @@ async function cmdOpenChat(context) {
         return null;
       }
       const go = 'Run local check';
+      // modal: a notification hides itself after a few seconds and the finalize waited on it for hours
+      say(`⏸ LOCAL CHECK: waiting for your answer in the VS Code dialog (run ${script.rel} on this machine, or skip).`);
       const choice = await vscode.window.showInformationMessage(
         `The solution passed in the CLike sandbox. Check it on this machine too? ${script.rel} builds and starts it as you ` +
-        'start it (containers when installed), runs the smoke and stops it — a running local stack is stopped.', go, 'Skip');
+        'start it (containers when installed), runs the smoke and stops it — a running local stack is stopped.', { modal: true }, go, 'Skip');
       if (choice !== go) {
         say(`ℹ LOCAL CHECK skipped: the default local start is not verified on this machine (${script.rel}).`);
         return null;
@@ -7961,7 +7986,7 @@ async function cmdOpenChat(context) {
     const choices = [setup && configure, start && run].filter(Boolean);
     const choice = await vscode.window.showInformationMessage(
       `The solution passed the CLike verification. Prepare it on this machine (${[setup, start].filter(Boolean).join(', ')})? ` +
-      `Values only you can give are listed in ${finalizeVerify.REPORT_PATH}.`, ...choices);
+      `Values only you can give are listed in ${finalizeVerify.REPORT_PATH}.`, { modal: true }, ...choices);
     if (!choice) return;
     const command = (rel) => win ? `powershell -ExecutionPolicy Bypass -File ${rel}` : `bash ${rel}`;
     const steps = [setup && command(setup), choice === run && start && command(start)].filter(Boolean);

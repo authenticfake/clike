@@ -635,6 +635,10 @@ async def _record_local_agent_telemetry(payload: dict, normalized: dict) -> None
         "duration_ms": telemetry.get("duration_ms"),
         "executor": telemetry.get("executor") or payload.get("localAgentExecutor"),
         "req_id": str(payload.get("req_id") or "").strip() or None,
+        # the agent worked and spent its tokens either way: a result CLike rejects is a run too
+        "outcome": {"status": "OK"} if normalized.get("ok") else {
+            "status": "REJECTED", "reason": "; ".join(str(e) for e in normalized.get("errors") or [])[:300],
+        },
     }
     try:
         from services.harper import _post_json
