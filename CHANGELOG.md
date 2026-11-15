@@ -4,6 +4,14 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+## [1.9.1] — 2026-11-15 — A README that shows
+
+### Fixed
+
+- The extension README shown by VS Code, the Marketplace and Open VSX has working links and its logo: links to the
+  repository documents and the logo are absolute (the packager rewrote the relative ones to paths that do not
+  exist).
+
 ## [1.9.0] — 2026-11-15 — UIs worth showing
 
 ### Added
