@@ -1,5 +1,11 @@
 # BMAD Skill Reference Seed
 
+These files are CLike-authored skill references inspired by BMad Method
+(https://github.com/bmad-code-org/BMAD-METHOD, MIT License, Copyright (c) 2025 BMad Code, LLC); no BMad
+Method code is included. "vendor/bmad" names the methodology they refer to, not bundled third-party
+software. BMad™ and BMad Method™ are trademarks of BMad Code, LLC; CLike is not affiliated with or
+endorsed by BMad Code, LLC.
+
 This directory is part of the CLike workspace template. When the VS Code extension initializes a new Harper workspace, the template copy places this directory at `.clike/skills/vendor/bmad` inside the target project.
 
 The files here are auditable methodology input, not executable authority. CLike does not execute BMAD skills directly, does not call the BMAD CLI during normal Harper phases, and does not treat vendor reference files as active prompts, tools, agents, or write policies. Native Harper runs ignore this layer.

@@ -5,8 +5,9 @@ This template records a manual reference review for the CLike-owned BMAD-aware m
 ## Reviewed BMAD Reference
 
 - Reference name: BMAD Method
-- Reference repository: `manual-review-pending`
-- Reference documentation: `manual-review-pending`
+- Reference repository: https://github.com/bmad-code-org/BMAD-METHOD (MIT License)
+- Reference documentation: https://github.com/bmad-code-org/BMAD-METHOD/tree/main/docs
+- Reference version: v6.12.4 (`eecafe9d4bcad92166bee08623e0526009d862c4`), checked 2026-11-15
 - Reviewed version: `manual-review-pending`
 - Reviewed commit: `manual-review-pending`
 - Reviewed at: `manual-review-pending`

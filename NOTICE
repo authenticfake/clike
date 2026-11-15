@@ -3,3 +3,13 @@ Copyright 2026 authenticfake
 
 This product is licensed under the Apache License, Version 2.0 (see LICENSE).
 Contributions are accepted under the same license (see CONTRIBUTING.md).
+
+Third-party references
+----------------------
+The optional methodology profile (orchestrator/methodologies/bmad) and the skill reference seed
+(extensions/vscode/templates/harper-init/.clike/skills/vendor/bmad) are CLike-authored and inspired by
+BMad Method (https://github.com/bmad-code-org/BMAD-METHOD), MIT License,
+Copyright (c) 2025 BMad Code, LLC. No BMad Method code is included.
+
+BMad(TM), BMad Method(TM) and BMad Core(TM) are trademarks of BMad Code, LLC. CLike is not affiliated
+with, endorsed by or certified by BMad Code, LLC. The names are used only to describe compatibility.
