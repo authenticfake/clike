@@ -31,6 +31,15 @@ class LocalAgentTelemetryTests(unittest.TestCase):
         self.assertEqual(normalized["telemetry"], TELEMETRY)
         self.assertEqual(normalized["usage"], TELEMETRY["usage"])
 
+    def test_a_rejected_result_is_recorded_as_a_rejected_run(self):
+        # lead-generation: a finalize rejected after 35 minutes of agent work left no trace of its cost
+        normalized = {"ok": False, "errors": ["finalize_cloud_apply_guard_missing"], "files": []}
+        record = self._record({"phase": "finalize", "runId": "r9", "project_id": "lg", "telemetry": TELEMETRY}, normalized).await_args.args[1]
+        self.assertEqual(record["outcome"], {"status": "REJECTED", "reason": "finalize_cloud_apply_guard_missing"})
+        self.assertEqual(record["usage"], TELEMETRY["usage"])
+        ok = self._record({"phase": "kit", "project_id": "lg", "telemetry": TELEMETRY}, {"ok": True}).await_args.args[1]
+        self.assertEqual(ok["outcome"], {"status": "OK"})
+
     def test_gateway_failure_never_fails_the_run(self):
         normalized = {"ok": True}
         self._record({"phase": "kit", "project_id": "p", "telemetry": TELEMETRY}, normalized,

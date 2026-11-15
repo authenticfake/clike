@@ -1397,6 +1397,7 @@ async function executeLocalAgentPackage({
   const rawAgentStdout = agentResult.stdout || '';
   agentResult.stdout = agentRun.text;
   log(`[harperRun][agent][telemetry] ${JSON.stringify(agentRun.telemetry)}`);
+  agentRunTelemetry.set(runId, { ...agentRun.telemetry, req_id: reqForAgent });
 
   const candidateFiles = (isFinalize)
     ? await collectFinalizeCandidateFiles(wsroot, { baseline: finalizeVerify.readDirtyBaseline(toFsPath(wsroot)) })
@@ -2513,6 +2514,26 @@ function cancelMcpRun(runId) {
 }
 
 /** Modal confirmation, or for an MCP / autopilot run the caller's confirm flag (nobody is there to click). */
+// The usage of each local-agent run, by run id, until the run ends: a run CLike rejects or that fails
+// after the agent worked is recorded in the telemetry too (its tokens and time were spent). A finalize
+// rejected after 35 minutes of agent work left no telemetry line.
+const agentRunTelemetry = new Map();
+
+async function recordFailedAgentRun(wsroot, projectId, runId, phase, errText) {
+  const t = agentRunTelemetry.get(runId);
+  agentRunTelemetry.delete(runId);
+  if (!t) return;
+  const rejected = /^Orchestrator rejected local-agent result:/i.test(String(errText || ''));
+  try {
+    await persistTelemetryVSCode(wsroot, projectId, runId, phase, {
+      ...t,
+      outcome: { status: rejected ? 'REJECTED' : 'FAILED', reason: String(errText || '').slice(0, 300) },
+    });
+  } catch (e) {
+    log(`[telemetry] failed agent run not recorded: ${e?.message || e}`);
+  }
+}
+
 async function confirmOrMcp(msg, text, go) {
   if (msg && (msg.__fromMcp || msg.__unattended)) return msg.confirm === true;
   const choice = await vscode.window.showWarningMessage(text, { modal: true }, go);
@@ -5770,6 +5791,7 @@ async function cmdOpenChat(context) {
             } catch (err) {
               const failMsg = `[harperRun][agent] ${err?.message || String(err)}`;
               log(failMsg);
+              await recordFailedAgentRun(wsroot, project_id, runId, phase, err?.message || String(err));
               // the developer stopped the agent: no cloud fallback, nothing written
               if (harperCancelled()) return discardCancelledRun();
 
@@ -5989,6 +6011,7 @@ async function cmdOpenChat(context) {
             // Local-agent runs report their own executor/model/usage (_out.telemetry);
             // cloud runs are attributed to the selected provider and model.
             const t = _out?.telemetry || {};
+            agentRunTelemetry.delete(runId);
             const isAgentRun = t.execution === 'local_agent';
             await persistTelemetryVSCode(wsroot, project_id, runId, phase, {
               ...t,
