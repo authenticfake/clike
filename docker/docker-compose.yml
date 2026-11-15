@@ -129,6 +129,9 @@ services:
       - CLIKE_EVAL_TOOLS_BIN=/opt/clike-tools/bin
       # Promoted REQs regressed at the same time (docker/.env; 1 = one after the other).
       - CLIKE_EVAL_REGRESSION_WORKERS=${CLIKE_EVAL_REGRESSION_WORKERS:-auto}
+      # Free space an eval needs on the eval volume (GB, and at least 15%): below it the work
+      # directories of the project's other evals are removed, then a warning.
+      - CLIKE_EVAL_MIN_FREE_GB=${CLIKE_EVAL_MIN_FREE_GB:-10}
     # Optional, git-ignored: variables the projects' tests need, e.g. a test database URL
     # (see eval.env.example). Names that look like credentials are refused at startup.
     env_file:

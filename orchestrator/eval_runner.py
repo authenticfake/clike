@@ -15,7 +15,7 @@ import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, fields
+from dataclasses import asdict, dataclass, fields
 from pathlib import Path, PurePosixPath
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -35,6 +35,12 @@ log = logging.getLogger("eval_runner")
 
 # a check result taken from the run on the same inputs instead of running the check again
 _REUSED_NOTE = "[CLike EvalRunner] Reused: same inputs as the targeted re-eval that just ran; not run again."
+# a promoted REQ's regression taken from an earlier run whose composed workspace was byte-identical
+_SAME_WORKSPACE_NOTE = ("[CLike EvalRunner] Reused: {other}'s regression ran {age} ago on a byte-identical workspace "
+                        "(same promoted tree, same candidate files it receives, same checks, CLike and environment) "
+                        "and did not block; not run again.")
+# the regression of a promoted REQ is reused for at most this long (tools, network, time)
+_REGRESSION_REUSE_MAX_AGE_S = 24 * 3600
 
 
 _TEST_DIRS = {"test", "tests", "e2e", "__tests__", "spec", "specs", "integration_tests"}
@@ -70,6 +76,44 @@ def _scenario_id_pattern(sid: str) -> "re.Pattern[str]":
     return re.compile(
         rf"(?:(?<![A-Za-z0-9])(?:{prefix}|{cap}|{prefix.lower()})|(?<=[a-z0-9])(?:{prefix}|{cap}))[-_]?{number}(?![0-9])"
     )
+
+
+def _workspace_digest(root: Path, extra: str) -> str:
+    """Digest of a composed eval workspace: every file a check can read (relative path and bytes),
+    without what the checks install or produce (venvs, node_modules, caches, reports, builds)."""
+    from services import eval_verdicts
+
+    h = hashlib.sha256(extra.encode())
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = sorted(d for d in dirnames if d not in eval_verdicts._SKIP_DIRS and not d.endswith(".egg-info"))
+        for name in sorted(filenames):
+            if name.endswith((".pyc", ".log")) or name == ".DS_Store":
+                continue
+            file = Path(dirpath) / name
+            h.update(f"{file.relative_to(root).as_posix()}\0".encode())
+            try:
+                h.update(file.read_bytes() if not file.is_symlink() else os.readlink(file).encode())
+            except OSError:
+                h.update(b"\1unreadable")
+    return h.hexdigest()
+
+
+# the per-REQ (and solution) eval directories of a project on the eval volume
+_EVAL_WORK_DIR_RE = re.compile(r"^(REQ-[A-Za-z0-9_.-]+|SOLUTION)$")
+
+
+def _human_age(seconds: float) -> str:
+    minutes = max(int(seconds // 60), 0)
+    return f"{minutes} min" if minutes < 120 else f"{minutes // 60} h"
+
+
+def _min_free_bytes(total: int) -> int:
+    """Free space an eval needs on its volume: CLIKE_EVAL_MIN_FREE_GB (default 10) and 15% of it."""
+    try:
+        gb = float(os.getenv("CLIKE_EVAL_MIN_FREE_GB", "") or 10)
+    except ValueError:
+        gb = 10.0
+    return int(max(gb * 1024 ** 3, total * 0.15))
 
 
 def _remove_tree(path: Path, trash: Path) -> None:
@@ -822,6 +866,54 @@ def _keyed_lock(key: str) -> threading.Lock:
 _VOLATILE_ENV_NAMES = frozenset({"HOSTNAME", "PWD", "OLDPWD", "SHLVL", "_", "TERM", "COLUMNS", "LINES"})
 
 
+class _RegressionReuse:
+    """The final cases of a promoted REQ's regression, keyed by the digest of its composed workspace.
+
+    Same bytes in, same checks, same CLike and environment: the same verdict. A repair that changes
+    the candidate's source changes every workspace and nothing is reused; one that changes only what a
+    promoted REQ does not receive (the candidate's own tests, its CI scripts, its docs) skips that
+    regression, and so does an eval run again after it was interrupted. Only a regression that did not
+    block and was stable is kept: a blocking or unstable result runs again."""
+
+    def __init__(self, path: Path, key: str) -> None:
+        self.path, self.key = path, key
+        self.reused_at: Optional[float] = None
+
+    def load(self, digest: str) -> Optional[List[Dict[str, Any]]]:
+        try:
+            data = json.loads(self.path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        at = float(data.get("at") or 0)
+        if data.get("digest") != digest or time.time() - at > _REGRESSION_REUSE_MAX_AGE_S:
+            return None
+        cases = [c for c in data.get("cases") or [] if isinstance(c, dict) and c.get("name")]
+        if not cases or any(not c.get("passed") and c.get("blocking") for c in cases):
+            return None
+        self.reused_at = at
+        return cases
+
+    def save(self, digest: str, cases: List["EvalCase"]) -> None:
+        # a blocking result runs again, and so does an unstable one (passed only on a re-run, known
+        # unstable, slowed by the parallel load): it is observed again, never carried forward
+        unstable = any(_NONDETERMINISTIC_NOTE in f"{c.stdout or ''}{c.stderr or ''}{c.excerpt or ''}"
+                       or _CONTENTION_NOTE in f"{c.stdout or ''}{c.stderr or ''}{c.excerpt or ''}" for c in cases)
+        if not digest or not cases or unstable or any(not c.passed and c.blocking for c in cases):
+            try:
+                self.path.unlink()
+            except OSError:
+                pass
+            return
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self.path.with_suffix(".tmp")
+            tmp.write_text(json.dumps({"digest": digest, "at": time.time(),
+                                       "cases": [asdict(c) for c in cases]}), encoding="utf-8")
+            os.replace(tmp, self.path)
+        except OSError as exc:
+            log.warning("regression result not kept for reuse: %s", exc)
+
+
 class _BaselineCache:
     """Results (check name -> failed) of a promoted REQ's checks on the promoted tree alone, valid
     while the promoted state digest is the same and for at most a day (tools, network, time)."""
@@ -1556,6 +1648,54 @@ class EvalRunner:
             return False
         except Exception:
             return False
+
+    def _disk_guard(self, req_id: Optional[str]) -> Optional[EvalCase]:
+        """Room on the eval volume before an eval composes its workspaces (a regression of 23 promoted
+        REQs takes ~25 GB). Low on space, the work directories of the project's other evals are removed,
+        least recently used first (their reports and the shared caches stay); still low, a warning names
+        the free space and the remedy, before an install fails with an unclear error."""
+        try:
+            base = self._eval_base_dir()
+            usage = shutil.disk_usage(base)
+        except OSError:
+            return None
+        need = _min_free_bytes(usage.total)
+        if usage.free >= need:
+            return None
+        root = self.project_root.resolve()
+        freed: List[str] = []
+        if base != root and root not in base.parents:  # never inside the project: runs/eval holds its reports
+            own = self._safe_req_id(req_id) if req_id else ""
+            recent = time.time() - 600  # an eval running now keeps its directory
+            others = []
+            for child in base.iterdir():
+                try:
+                    if child.is_dir() and _EVAL_WORK_DIR_RE.match(child.name) and child.name != own and child.stat().st_mtime < recent:
+                        others.append((child.stat().st_mtime, child))
+                except OSError:
+                    continue
+            for _mtime, child in sorted(others):
+                if shutil.disk_usage(base).free >= need:
+                    break
+                try:
+                    _remove_tree(child, self._stale_dir())
+                    freed.append(child.name)
+                except OSError as exc:
+                    log.warning("eval disk guard: %s not removed: %s", child, exc)
+            if freed:
+                log.info("eval disk guard: removed the work directories of %s", ", ".join(freed))
+        free = shutil.disk_usage(base).free
+        if free >= need:
+            return None
+        gib = 1024 ** 3
+        text = (f"[CLike EvalRunner] Low disk space on the eval volume: {free / gib:.1f} GB free of {usage.total / gib:.0f} GB "
+                f"(an eval needs {need / gib:.0f} GB: CLIKE_EVAL_MIN_FREE_GB, at least 15%)."
+                + (f" Removed the work directories of {', '.join(freed)}." if freed else "")
+                + " Installs and builds may fail for lack of space: not a defect of the code. Free space on the volume "
+                "(other projects' evals in it), or enlarge the container VM disk (podman machine set --disk-size), "
+                "then run the eval again.")
+        log.warning("eval disk guard: %.1f GB free of %.0f GB", free / gib, usage.total / gib)
+        return EvalCase(name="env::disk-space", passed=False, code=0, stdout=text, stderr="", blocking=False)
 
     def _stale_dir(self) -> Path:
         """Where work directories that could not be deleted are moved aside (_remove_tree)."""
@@ -3843,6 +3983,10 @@ class EvalRunner:
             )
             return report
 
+        if not self.regression:
+            disk = self._disk_guard(eff_req)
+            if disk is not None:
+                out_cases.append(disk)
         try:
             try:
                 workspace_result = self._prepare_eval_workspace(req_id=eff_req, profile_path=profile_path)
@@ -3894,6 +4038,14 @@ class EvalRunner:
             )
 
         work_root, reports_root, logs_root, path_map, work_kit_root, dependency_roots = workspace_result
+
+        reuse = getattr(self, "_regression_reuse", None)
+        if reuse is not None and work_kit_root:
+            # a promoted REQ's regression: the same workspace as a run that did not block gives its cases
+            self._workspace_digest = _workspace_digest(Path(work_root), reuse.key)
+            self._reused_cases = reuse.load(self._workspace_digest)
+            if self._reused_cases is not None:
+                return self._report_from_cases(profile_path=profile_path, req_id=eff_req, mode="auto", cases=[])
 
         active_profile_path = Path(
             self._rewrite_for_eval_workspace(str(profile_path), path_map)
@@ -5295,6 +5447,7 @@ class EvalRunner:
             )
             return cases
         runner = self._regression_runner(req_id, other, candidate_src)
+        runner._regression_reuse = self._regression_reuse_for(req_id, other, superseded)
         # declared, approved change: these checks of the amended REQ no longer hold (a test reference,
         # path::name, is not a check: its failure is recognised where it runs, _mark_superseded_tests)
         dropped = {check: by for check, by in (superseded.get(other) or {}).items() if "::" not in check}
@@ -5308,6 +5461,18 @@ class EvalRunner:
             if not [c for c in self._normalize_cases(ltc) if str(c.get("name") or "case") not in dropped]:
                 return cases  # every check of the amended REQ is replaced: nothing left to regress
         report = runner.run_profile(profile=str(profile), ltc=ltc, req_id=other)
+        reused = getattr(runner, "_reused_cases", None)
+        if reused is not None:
+            age = _human_age(time.time() - (runner._regression_reuse.reused_at or time.time()))
+            note = _SAME_WORKSPACE_NOTE.format(other=other, age=age)
+            known = {f.name for f in fields(EvalCase)}
+            log.info("regression %s: reused (byte-identical workspace, %s ago)", other, age)
+            out = []
+            for data in reused:
+                case = EvalCase(**{k: v for k, v in data.items() if k in known})
+                case.stdout = f"{note}\n{case.stdout or ''}"
+                out.append(case)
+            return out
         if runner.reconciled_tests:
             # visible, never silent: the candidate changes tests another REQ delivered
             files = sorted(set(runner.reconciled_tests))
@@ -5333,4 +5498,35 @@ class EvalRunner:
                 case.blocking = False
             case.name = f"regression::{other}::{case.name}"
             cases.append(case)
+        if runner._regression_reuse is not None and not (self.cancel_event is not None and self.cancel_event.is_set()):
+            runner._regression_reuse.save(getattr(runner, "_workspace_digest", ""), cases)
         return cases
+
+    def _regression_reuse_for(
+        self, req_id: Optional[str], other: str, superseded: Dict[str, Dict[str, str]]
+    ) -> Optional[_RegressionReuse]:
+        """Where a promoted REQ's regression is kept for reuse, and what besides its workspace decides
+        it: the promoted state (CLike, engine, environment, every KIT and LTC), the declared changes.
+        Only on the sandbox volume, outside the project (local agents write the project: a planted
+        result would skip a regression)."""
+        try:
+            base = self._eval_base_dir()
+            root = self.project_root.resolve()
+            if base == root or root in base.parents:
+                return None
+            promoted = self._promoted_state_digest(req_id)
+            if not promoted:
+                return None
+            key = json.dumps({
+                "promoted": promoted,
+                "superseded": superseded.get(other) or {},
+                "superseded_tests": sorted(getattr(self, "_superseded_test_refs", {}) or {}),
+                "amends": getattr(self, "_candidate_amends", []),
+                "keeps": getattr(self, "_candidate_keeps", False),
+                "workers": regression_workers(),
+            }, sort_keys=True, default=str)
+            path = base / ".regression-results" / self._safe_req_id(req_id) / f"{self._safe_req_id(other)}.json"
+            return _RegressionReuse(path, key)
+        except Exception as exc:  # an optimisation only
+            log.warning("regression reuse unavailable for %s: %s", other, exc)
+            return None

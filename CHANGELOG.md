@@ -4,6 +4,22 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+## [1.9.5] — 2026-11-15 — Faster evals after a repair, room on the disk
+
+### Added
+
+- **A promoted REQ's regression is reused when its workspace is byte-identical.** Each one is kept with
+  the digest of its composed workspace and of the promoted state, CLike, environment and declared changes;
+  the next eval reuses a result that did not block, marked as reused. An eval run again after an
+  interruption resumes where it was, and a repair that touched only what the promoted REQs do not receive
+  (the candidate's own tests, CI scripts, docs) skips their regression, most of an eval's time (a pilot: 56 minutes).
+  A change to the candidate's source runs everything again; a blocking or unstable result (passed only
+  on a re-run) is never reused.
+- **Disk guard on the eval volume.** Below `CLIKE_EVAL_MIN_FREE_GB` (default 10, and at least 15%), the
+  work directories of the project's other evals are removed, least recently used first (reports and caches
+  stay); still below, the report warns `env::disk-space` with the remedy. A pilot's volume had reached 91%
+  with the work directories of earlier REQs.
+
 ## [1.9.4] — 2026-11-15 — No eval cut short
 
 ### Fixed

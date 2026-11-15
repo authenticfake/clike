@@ -40,6 +40,7 @@ cp docker/.env.example docker/.env   # where your projects live, sandbox memory 
 | `.env` | `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` | the providers you use in cloud execution |
 | `docker/.env` | `CLIKE_PROJECTS_DIR` | the host folder that contains your projects (mounted read-only) |
 | `docker/.env` | `CLIKE_EVAL_SANDBOX_MEM_LIMIT` | below the VM memory: `3g` with a 6 GB VM, `1g` with 2 GB |
+| `docker/.env` | `CLIKE_EVAL_MIN_FREE_GB` | free space an eval needs on the eval volume: `10` (default; and at least 15%) |
 | `docker/.env` | `CLIKE_EVAL_REGRESSION_WORKERS` | promoted REQs regressed at the same time: `2` (default), `1` with a small VM or sandbox |
 
 Your projects live under `CLIKE_PROJECTS_DIR`: the eval sandbox reads them from there.
@@ -76,7 +77,7 @@ With projects mounted by `mount-project.sh`, restart the stack with `./rebuild.s
 Install the packaged extension (or build it from source):
 
 ```bash
-code --install-extension extensions/vscode/clike-1.9.4.vsix
+code --install-extension extensions/vscode/clike-1.9.5.vsix
 # from source: cd extensions/vscode && npm ci && npm run check && npm run package
 ```
 
