@@ -472,6 +472,24 @@ class DeclaredRegressionEnvTests(_RegressionProject):
         self.assertNotIn("OPENAI_API_KEY", note["stdout"])
         self.assertNotIn("PATH=", note["stdout"])
 
+    def test_a_promoted_declaration_keeps_holding_for_the_reqs_delivered_before_it(self):
+        # REQ-002 (promoted, MODIFIED) declared the old default; REQ-003 comes after: REQ-001's tests still
+        # run under it, REQ-002's own run without it (they prove the new default)
+        path = self.proj / "docs" / "harper" / "plan.json"
+        plan = json.loads(path.read_text())
+        plan["reqs"][1].update(status="done", regression_env={"LG_UI_THEME": "classic"})
+        path.write_text(json.dumps(plan))
+        self._kit("REQ-001", "pricing", "def price():\n    return 10\n",
+                  "import os\nfrom pricing import price\nassert os.environ.get('LG_UI_THEME') == 'classic'\nassert price() == 10\n")
+        self._kit("REQ-002", "checkout", "from pricing import price\n\ndef total(n):\n    return n * price()\n",
+                  "import os\nfrom checkout import total\nassert 'LG_UI_THEME' not in os.environ\nassert total(2) == 20\n")
+        body = self._post("/v1/eval/run", "REQ-003", regression=True).json()
+        by = {c["name"]: c for c in body["cases"]}
+        self.assertTrue(by["regression::REQ-001::unit"]["passed"], by["regression::REQ-001::unit"])
+        self.assertTrue(by["regression::REQ-002::unit"]["passed"], by["regression::REQ-002::unit"])
+        self.assertIn("REQ-002: LG_UI_THEME=classic", by["env::regression-env"]["stdout"])
+        self.assertIn(": REQ-001.", by["env::regression-env"]["stdout"])
+
     def test_only_plain_settings_are_accepted(self):
         from eval_runner import declared_regression_env
 

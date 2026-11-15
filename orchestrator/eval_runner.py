@@ -4950,6 +4950,25 @@ class EvalRunner:
             if str(r["id"]) == str(req_id) or str(r.get("status") or "").strip().lower() in PROMOTED_REQ_STATUSES
         ]
 
+    def regression_envs(self, req_id: Optional[str]) -> Tuple[Dict[str, Dict[str, str]], List[str]]:
+        """({promoted REQ: environment}, notes) — the regression_env a MODIFIED REQ declares holds, like its
+        supersedes, while it is the candidate and once it is promoted: for the REQs delivered before it
+        (plan order), whose unchanged tests were written for the old default. The declaring REQ itself,
+        and the REQs after it, run without it: they prove the new default. Later declarations win."""
+        reqs = self._plan_reqs()
+        order = {str(r["id"]): i for i, r in enumerate(reqs)}
+        envs: Dict[str, Dict[str, str]] = {}
+        notes: List[str] = []
+        for declaring in sorted(self._declared_changes(req_id), key=lambda r: order.get(str(r["id"]), 0)):
+            env = declared_regression_env(declaring)
+            if not env:
+                continue
+            at = order.get(str(declaring["id"]), 0)
+            notes.append(f"{declaring['id']}: " + ", ".join(f"{k}={v}" for k, v in sorted(env.items())))
+            for other in reqs[:at]:
+                envs.setdefault(str(other["id"]), {}).update(env)
+        return envs, notes
+
     def superseded_checks(self, req_id: Optional[str]) -> Dict[str, Dict[str, str]]:
         """{amended REQ: {check id: "REQ-y: reason"}} — checks a MODIFIED REQ declared it replaces.
         They leave the amended REQ's regression (its other checks stay); the replacement lives,
@@ -5051,7 +5070,7 @@ class EvalRunner:
                     cancel_event=self.cancel_event,
                     regression=True,
                 )
-                baseline_runner._declared_env = getattr(self, "_regression_env", None) or {}
+                baseline_runner._declared_env = (getattr(self, "_regression_envs", None) or {}).get(other) or {}
                 rerun = baseline_runner.run_profile(profile=str(profile), ltc=ltc, req_id=other, checks=retry or None)
             except Exception as exc:  # the first verdict stands
                 log.warning("regression baseline of %s failed to run: %s", other, exc)
@@ -5243,7 +5262,7 @@ class EvalRunner:
         self._superseded_test_refs = self.superseded_tests(req_id)
         candidate = next((r for r in self._plan_reqs() if str(r["id"]) == str(req_id)), {})
         self._candidate_amends = [str(a) for a in (candidate.get("amends") or [])]
-        self._regression_env = declared_regression_env(candidate)
+        self._regression_envs, declared = self.regression_envs(req_id)
         # the REQ promises the amended REQs' tests keep passing: no supersede to suggest
         self._candidate_keeps = bool(_KEEPS_TESTS_RE.search(" ".join(str(a) for a in candidate.get("acceptance") or [])))
         others = self.regression_req_ids(req_id)
@@ -5273,14 +5292,16 @@ class EvalRunner:
         workers = min(regression_workers(), len(others))
         self._regression_workers_used = workers
         declared_note: List[EvalCase] = []
-        if self._regression_env and others:
-            settings = ", ".join(f"{k}={v}" for k, v in sorted(self._regression_env.items()))
-            log.info("regression of %s: declared environment %s", req_id, settings)
+        under = sorted(other for other in others if self._regression_envs.get(other))
+        if declared and under:
+            settings = "; ".join(declared)
+            log.info("regression of %s: declared environment %s for %d REQ(s)", req_id, settings, len(under))
             declared_note = [EvalCase(
                 name="env::regression-env", passed=True, code=0, blocking=False, stderr="",
-                stdout=(f"[CLike EvalRunner] The promoted REQs' checks ran with the environment {req_id} declares in "
-                        f"plan.json regression_env: {settings}. Their tests prove what they proved under it; the new "
-                        f"default is proven by {req_id}'s own checks."),
+                stdout=(f"[CLike EvalRunner] The checks of the REQs delivered before a MODIFIED REQ that changed a "
+                        f"default ran under the setting it declares in plan.json regression_env ({settings}): "
+                        f"{', '.join(under)}. Their tests prove what they proved under it; the new default is proven "
+                        "by the declaring REQ's own checks, which run without it."),
             )]
         self._promoted_state_digest(req_id)  # once, before the workers share it
         self._progress(phase="regression", regression_total=len(others), regression_done=0, regression_current=[], current=None)
@@ -5364,7 +5385,7 @@ class EvalRunner:
             cancel_event=self.cancel_event,
             regression=True,
         )
-        runner._declared_env = getattr(self, "_regression_env", None) or {}
+        runner._declared_env = (getattr(self, "_regression_envs", None) or {}).get(other) or {}
         return runner
 
     def _mark_superseded_tests(self, other: str, report: EvalReport) -> None:
@@ -5635,7 +5656,7 @@ class EvalRunner:
                 "amends": getattr(self, "_candidate_amends", []),
                 "keeps": getattr(self, "_candidate_keeps", False),
                 "workers": regression_workers(),
-                "regression_env": getattr(self, "_regression_env", None) or {},
+                "regression_env": (getattr(self, "_regression_envs", None) or {}).get(other) or {},
             }, sort_keys=True, default=str)
             path = base / ".regression-results" / self._safe_req_id(req_id) / f"{self._safe_req_id(other)}.json"
             return _RegressionReuse(path, key)

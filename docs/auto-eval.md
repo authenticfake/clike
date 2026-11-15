@@ -363,7 +363,9 @@ the promoted REQs' unchanged checks under: `regression_env: {"LG_UI_THEME": "cla
 (`/idea --extend` writes it; plain settings only — names that look like credentials, `CLIKE_*`,
 `PATH`-like variables, nested or long values are ignored). Every promoted check still runs and still
 blocks: it proves its behavior under the setting it was written for, while the new default is proven
-by the candidate's own checks. The report says it (`env::regression-env`), and it is part of what a
+by the declaring REQ's own checks. Like `supersedes`, the declaration holds while the REQ is the
+candidate and once it is promoted: for the REQs delivered before it (plan order); the declaring REQ and
+the ones after it run without it. The report says it (`env::regression-env`), and it is part of what a
 reused regression must match.
 
 Declared changes of a release (`/idea --extend`) narrow the regression, when the REQ that declares
