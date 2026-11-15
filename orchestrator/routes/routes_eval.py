@@ -161,7 +161,18 @@ def _load_trusted_ltc(
     raise HTTPException(status_code=404, detail="profile not found under project_root")
 
 
-_SANDBOX_TIMEOUT_S = float(os.getenv("CLIKE_EVAL_SANDBOX_TIMEOUT_S", "3600"))
+# How long the orchestrator waits for the sandbox's answer. The caller owns the deadline (the extension's
+# clike.harperTimeout; its disconnect stops the run): this only guards against a lost sandbox, so it must not
+# be shorter than an eval can last. One hour cut a regression of 23 promoted REQs at 56 minutes, nearly done.
+_SANDBOX_TIMEOUT_DEFAULT_S = 6 * 3600
+
+
+def _sandbox_timeout() -> httpx.Timeout:
+    try:
+        total = float(os.getenv("CLIKE_EVAL_SANDBOX_TIMEOUT_S", "") or _SANDBOX_TIMEOUT_DEFAULT_S)
+    except ValueError:
+        total = float(_SANDBOX_TIMEOUT_DEFAULT_S)
+    return httpx.Timeout(max(total, 60.0), connect=15.0)
 
 
 async def _until_done_or_disconnected(request: Optional[Request], task: "asyncio.Task", on_disconnect) -> Any:
@@ -205,7 +216,7 @@ async def _execute_profile(
             "regression_reqs": regression_reqs or None,
             **({"reuse_cases": reuse_cases} if reuse_cases else {}),
         }
-        async with httpx.AsyncClient(timeout=_SANDBOX_TIMEOUT_S) as client:
+        async with httpx.AsyncClient(timeout=_sandbox_timeout()) as client:
             task = asyncio.create_task(client.post(f"{sandbox}/run", json=body))
             try:
                 response = await _until_done_or_disconnected(request, task, task.cancel)

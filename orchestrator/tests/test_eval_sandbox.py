@@ -87,6 +87,20 @@ class EvalSandboxTests(unittest.TestCase):
                          cases=[EvalCase(name="c", passed=True, code=0, stdout="o", stderr="")], status="PASS")
         self.assertEqual(report_from_dict(json.loads(json.dumps(report_to_dict(rep)))), rep)
 
+    def test_sandbox_wait_outlasts_a_long_regression(self):
+        """The orchestrator waits for the sandbox longer than an eval can last (one hour cut a regression of
+        23 promoted REQs at 56 minutes): the caller's deadline stops a run, not this wait."""
+        from routes import routes_eval
+
+        with patch.dict(os.environ, {"CLIKE_EVAL_SANDBOX_TIMEOUT_S": ""}):
+            default = routes_eval._sandbox_timeout()
+        self.assertGreaterEqual(default.read, 4 * 3600)
+        self.assertEqual(default.connect, 15.0)
+        with patch.dict(os.environ, {"CLIKE_EVAL_SANDBOX_TIMEOUT_S": "9000"}):
+            self.assertEqual(routes_eval._sandbox_timeout().read, 9000.0)
+        with patch.dict(os.environ, {"CLIKE_EVAL_SANDBOX_TIMEOUT_S": "soon"}):
+            self.assertEqual(routes_eval._sandbox_timeout().read, float(routes_eval._SANDBOX_TIMEOUT_DEFAULT_S))
+
     def test_orchestrator_routes_eval_and_gate_to_the_sandbox(self):
         with patch.dict(os.environ, _clean_env(DEV_FOLDER=str(self.projects)), clear=True):
             sandbox = TestClient(_load_sandbox_app().app)
