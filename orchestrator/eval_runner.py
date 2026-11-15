@@ -1051,14 +1051,15 @@ class _BaselineCache:
     def failing(self) -> frozenset:
         return frozenset(name for name, failed in self.results.items() if failed)
 
-    def new_errors(self, check: str, excerpt: Optional[str]) -> List[str]:
+    def new_errors(self, check: str, excerpt: Optional[str], output: Optional[str] = None) -> List[str]:
         """Error lines of ``excerpt`` that ``check`` did not show on the promoted tree: the candidate
         broke it in a new way. Empty when they are the same, or when the baseline kept none."""
         known = self.errors.get(check)
         if not known:
             return []
         new = [key for key in eval_failures.error_keys(excerpt or "") if key not in set(known)]
-        if new and self._same_failing_tests(known, excerpt):
+        # the runner's list of failed tests is in the full output (the excerpt keeps the error lines)
+        if new and self._same_failing_tests(known, output or excerpt):
             # the same tests fail as on the promoted tree, with other values in their messages (a test
             # comparing an exact set that already differed, now by one more item): not a new break
             return []
@@ -5107,7 +5108,8 @@ class EvalRunner:
             log.info("regression %s: baseline of the promoted tree reused for %d check(s)", other, len(failing))
         failing_without = {c.name for c in failing if baseline.result(c.name)}
         for case in failing:
-            new = baseline.new_errors(case.name, case.excerpt) if case.name in failing_without else []
+            new = (baseline.new_errors(case.name, case.excerpt, f"{case.stdout or ''}\n{case.stderr or ''}")
+                   if case.name in failing_without else [])
             if new:
                 # it fails on the promoted tree too, but the candidate adds errors of its own (B2B
                 # REQ-003: coverage below the threshold there, an import error with the candidate)

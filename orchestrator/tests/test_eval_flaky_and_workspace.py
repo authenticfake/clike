@@ -148,6 +148,10 @@ class BaselineCacheTests(_RegressionProject):
             other = out(", 'lg_ui_theme'") + "\nFAILED ci/lg/runtime/test_api.py::test_health - ImportError: x\n"
             self.assertTrue(cache.new_errors("unit", other))
             self.assertTrue(cache.new_errors("unit", "E       ImportError: cannot import name 'x'\n"))
+            # the excerpt keeps the error lines without the runner's FAILED list: the full output names the tests
+            excerpt = "E       AssertionError: assert {'lg_a', 'lg_b', 'lg_ui_theme'} == {'lg_a'}\n"
+            self.assertTrue(cache.new_errors("unit", excerpt))
+            self.assertEqual(cache.new_errors("unit", excerpt, out(", 'lg_ui_theme'")), [])
 
     def test_a_known_unstable_check_with_a_new_error_still_blocks(self):
         with tempfile.TemporaryDirectory() as tmp:
