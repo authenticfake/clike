@@ -224,8 +224,9 @@ included), duration and cost. Open **http://127.0.0.1:8000/v1/metrics/harper/ui*
 
 - **Capabilities** — project-local skills, packs and design profiles (`.clike/`) that PLAN selects
   per REQ and KIT/EVAL/GATE enforce. → [docs/CAPABILITIES.md](docs/CAPABILITIES.md)
-- **Methodology profiles** — optional, advisory enrichment of phases (e.g. BMAD roles) without a
-  runtime dependency and without overriding Harper governance. → [docs/integrations/bmad](docs/integrations/bmad/README.md)
+- **Methodology profiles** — optional, advisory enrichment of phases, e.g. a profile compatible with
+  BMad Method (analyst, PM, UX, architect, developer, QA, tech-writer roles), without a runtime
+  dependency and without overriding Harper governance. → [docs/integrations/bmad](docs/integrations/bmad/README.md)
 - **MCP** — a read-only informational server in the orchestrator and an opt-in operational server in
   the extension, both token-protected. → [docs/mcp.md](docs/mcp.md)
 - **Models** — declarative catalog and routing in `configs/models.yaml`. → [setup and runtime](docs/setup-and-runtime.md)
@@ -301,3 +302,5 @@ Apache License 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
 ---
 
 **CLike on, code on.**
+
+<sub>BMad™ and BMad Method™ are trademarks of BMad Code, LLC; CLike is not affiliated with or endorsed by BMad Code, LLC.</sub>

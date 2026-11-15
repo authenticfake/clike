@@ -2,6 +2,10 @@
 
 BMAD support in CLike is implemented as a governed methodology profile. It gives Harper phases a richer role-driven working style, while CLike remains the runtime that owns lifecycle control, artifact contracts, execution boundaries, eval, gate, telemetry, audit, and promotion.
 
+CLike's BMAD profile is compatible with BMad Method (https://github.com/bmad-code-org/BMAD-METHOD, MIT
+License). Its role mappings and skill references are CLike-authored and inspired by BMad Method; no BMad
+Method code is included. Reference version: BMad Method v6.12.4. BMad™, BMad Method™ and BMad Core™ are trademarks of BMad Code, LLC. CLike is not affiliated with, endorsed by or certified by BMad Code, LLC.
+
 The integration exists because methodology and execution are different concerns. A methodology can tell the system how to reason about a phase: an analyst can frame the idea, a product manager can tighten acceptance criteria, an architect can make implementation slices more precise, a developer can focus a candidate KIT run, and QA can explain likely repair paths. None of those roles become executors, and none of them receive governance authority.
 
 CLike remains responsible for canonical Harper artifacts, orchestration and phase state, eval, gate, telemetry, audit, promotion, cloud/local execution policy, candidate-first isolation, allowed write roots, and forbidden paths. BMAD contributes methodology identity with `--methodology bmad`, role identity with `--agent <role>`, phase-to-role defaults, cloud prompt guidance when Gateway is used, local-agent guidance when Claude Code or Codex CLI is used, and QA advisory guidance after canonical eval.
