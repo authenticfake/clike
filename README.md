@@ -5,7 +5,7 @@
 [![Made with Python](https://img.shields.io/badge/Made%20with-Python%203.12-3776AB?logo=python)](https://www.python.org/)
 [![VS Code Extension](https://img.shields.io/badge/VS%20Code-Extension-007ACC?logo=visualstudiocode)](extensions/vscode)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.9.11-informational)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.10.0-informational)](CHANGELOG.md)
 
 > **From intent to impact.** CLike turns an idea into reviewed, tested and promotable software
 > through a governed lifecycle in which cloud models and local coding agents execute, while
@@ -62,11 +62,11 @@ Models and agents execute.  Eval and Gate decide.
 
 | Version | Date | Milestone |
 |---|---|---|
-| 1.9.7 | 2026-11 | Delivered tests are extended, never relaxed: a candidate's copy of a promoted REQ's test that changes its assertions blocks the regression unless the release declares the change. See [CHANGELOG](CHANGELOG.md). |
 | 1.9.8 | 2026-11 | The old default stays proven after promotion: a promoted REQ's `regression_env` keeps holding for the REQs delivered before it. See [CHANGELOG](CHANGELOG.md). |
 | 1.9.9 | 2026-11 | A repair note that does not invite a relaxed test: a promoted REQ's failure starts from the test's own error, and a reconciled test is extended, never loosened. See [CHANGELOG](CHANGELOG.md). |
 | 1.9.10 | 2026-11 | An already broken test stays already broken: the same failing tests with other values in their messages are not a new error of the candidate. See [CHANGELOG](CHANGELOG.md). |
-| **1.9.11** | 2026-11 | The failed tests read from the whole output: an already failing test with other values in its message is recognised in a real report. See [CHANGELOG](CHANGELOG.md). |
+| 1.9.11 | 2026-11 | The failed tests read from the whole output: an already failing test with other values in its message is recognised in a real report. See [CHANGELOG](CHANGELOG.md). |
+| **1.10.0** | 2026-11 | Where the time and the money go: the telemetry portal drills a phase down to its requirements, ranks the requirements by cost, time, repairs and failed evals, and gives KPIs and an estimate for the next ones. See [CHANGELOG](CHANGELOG.md). |
 
 The last five versions; every version and change is in the [CHANGELOG](CHANGELOG.md).
 
@@ -180,7 +180,7 @@ VM with at least 4 GB, provider API keys for cloud models, optionally the Claude
 cp .env.example .env                      # provider keys + CLIKE_API_TOKEN=$(openssl rand -hex 32)
 cp docker/.env.example docker/.env        # CLIKE_PROJECTS_DIR = host folder containing your projects
 cd docker && podman-compose up -d --build # services on 127.0.0.1, wait until (healthy)
-code --install-extension ../extensions/vscode/clike-1.9.11.vsix
+code --install-extension ../extensions/vscode/clike-1.10.0.vsix
 ```
 
 In VS Code: **CLike: Set Service Token** (the `CLIKE_API_TOKEN` value). Full guide, local agents

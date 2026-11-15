@@ -4,6 +4,18 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+## [1.10.0] — 2026-11-16 — Where the time and the money go
+
+### Added
+
+- **Telemetry portal: requirements, drill-down, KPIs and estimate.** Clicking a phase in *Cost by Phase* shows
+  the requirements behind it. A **Requirements** view ranks every REQ by cost, work time (agent/model and eval
+  sandbox), elapsed time, KIT runs and repairs, evals and failures, first eval and gate outcome, and opens
+  each one's breakdown per phase. A **KPIs & estimate** view gives cost and time per REQ (median, p90),
+  repairs per REQ, eval first-pass and gate pass rates, prompt cache hit rate, agent share of time, the cost
+  of the phases without a REQ, and an estimate for N more requirements from the project's own history.
+  New endpoint `GET /v1/metrics/harper/reqs`. Cloud and local-agent runs alike (same telemetry rows).
+
 ## [1.9.11] — 2026-11-15 — The failed tests read from the whole output
 
 ### Fixed
