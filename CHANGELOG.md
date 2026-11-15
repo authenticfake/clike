@@ -4,6 +4,20 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+## [1.9.3] — 2026-11-15 — Regression after a new dependency
+
+### Fixed
+
+- The regression of promoted REQs installs the npm dependencies the candidate adds. A KIT that pins its harness
+  dependencies in its own `package.json` built the current source with the packages of its own time: a candidate
+  adding a UI library (shadcn/ui) failed every promoted REQ with "Cannot find module" though no assertion changed
+  (a pilot's v2: 22 REQs). When the candidate's manifest at the same path holds every dependency of the promoted
+  one at the same version, the promoted copy takes the candidate's manifest and lock — as the candidate's Python
+  requirements already were; a version conflict keeps the promoted manifest.
+- A test a MODIFIED REQ supersedes is recognised when the promoted REQ's harness runs it from another test root
+  (`scope-tests/req_001/x.spec.ts` for the declared `test/req_001/x.spec.ts`): the four superseded tests of a
+  pilot's REQ-001 blocked the regression instead of being reported as superseded.
+
 ## [1.9.2] — 2026-11-15 — Release deltas, read right
 
 ### Fixed
