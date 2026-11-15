@@ -4,6 +4,16 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+## [1.9.9] — 2026-11-15 — A repair note that does not invite a relaxed test
+
+### Fixed
+
+- The note on a promoted REQ's failing check that names the shared files a candidate replaced ("Shared files
+  changed") now says to start from the test's own error (a listed file is the cause only when that error
+  points to it), and that reconciling the promoted REQ's test means extending it with every assertion as
+  strict; otherwise the product satisfies the test as delivered, or the change is declared. Its old wording
+  ("reconcile the test in the candidate test root") led a pilot's repair to copy a release 1 test and relax it.
+
 ## [1.9.8] — 2026-11-15 — The old default stays proven after promotion
 
 ### Fixed

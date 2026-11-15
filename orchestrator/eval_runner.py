@@ -613,13 +613,16 @@ def _shared_file_changes(project_root: Path, candidate_root: Path, other_kit: Pa
 def _shared_files_note(other: str, changes: List[str]) -> str:
     return (
         f"{_SHARED_FILES_NOTE}: this candidate replaces files that {other} also delivers, and a check of "
-        f"{other} fails with the candidate overlaid. A shared file keeps what {other} put there and adds this "
+        f"{other} fails with the candidate overlaid. Start from the test's own error (at the end): a file listed "
+        f"here is the cause only when that error points to it. A shared file keeps what {other} put there and adds this "
         "REQ's part: test runner selectors (match/include patterns, test directories, projects, suites) keep the "
         "existing entries and add new ones, never chosen by which test files exist (after promotion every REQ's "
         "tests are in the same tree); infrastructure, build and route files keep their entries. When "
         f"a check of {other} pins the file's content (an exact set of services or files), add this REQ's part "
         "in a separate file instead (a compose override, an extra test config or project). If this REQ changes "
-        f"{other}'s behaviour on purpose, reconcile {other}'s test in the candidate test root. A file this "
+        f"{other}'s behaviour on purpose, reconcile {other}'s test in the candidate test root by extending it: "
+        "every assertion it has stays as strict (a removed, loosened or skipped assertion blocks the regression); "
+        "otherwise make the product satisfy the test as delivered, or declare the change (supersedes). A file this "
         f"candidate adds in a test directory of {other} (a package marker such as __init__.py, a conftest, a "
         f"runner config) changes how {other}'s tests are collected and import their helpers after promotion: "
         "remove it and make this REQ's tests import their helpers the way the promoted tests already do (the "
