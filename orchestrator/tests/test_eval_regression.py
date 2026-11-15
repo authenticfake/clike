@@ -482,6 +482,48 @@ class DeclaredRegressionEnvTests(_RegressionProject):
         self.assertEqual(declared_regression_env(None), {})
 
 
+class ChangedAssertionTests(_RegressionProject):
+    """A candidate's copy of a promoted REQ's test may add to it, never relax it: a repair turned
+    `set(env) == set(names)` into `set(names) <= set(env)` and the promoted REQ's regression passed."""
+
+    def _candidate_copy(self, text):
+        (self.proj / "runs" / "kit" / "REQ-002" / "test" / "test_pricing.py").write_text(text)
+        body = self._post("/v1/eval/run", "REQ-002", regression=True).json()
+        return {c["name"]: c for c in body["cases"]}
+
+    def test_a_relaxed_assertion_blocks(self):
+        cases = self._candidate_copy("from pricing import price\nassert price() >= 0\n")
+        case = cases.get("regression::REQ-001::reconciled-tests-assertions")
+        self.assertIsNotNone(case, list(cases))
+        self.assertFalse(case["passed"])
+        self.assertTrue(case["blocking"])
+        self.assertIn("assert price() == 10", case["stdout"])
+        self.assertIn("--supersede REQ-001#", case["stdout"])
+
+    def test_an_added_assertion_does_not(self):
+        cases = self._candidate_copy("from pricing import price\nassert price() == 10\nassert price() > 0\n")
+        self.assertNotIn("regression::REQ-001::reconciled-tests-assertions", cases)
+        self.assertIn("regression::REQ-001::reconciled-tests", cases)  # still shown for review
+
+    def test_the_assertion_lines_compared(self):
+        from eval_runner import changed_assertions
+
+        self.assertEqual(changed_assertions("x = 1\n    assert a == b\n", "x = 2\nassert  a == b\nassert c\n"), [])
+        # a value the release changes, a longer expected list: still strict
+        self.assertEqual(changed_assertions("assert price() == 10\n", "assert price() == 12\n"), [])
+        self.assertEqual(changed_assertions("expect(routes).toEqual(['a', 'b']);\n", "expect(routes).toEqual(['a', 'b', 'c']);\n"), [])
+        dropped = changed_assertions("await expect(page.getByText('A')).toBeVisible();\n", "await page.goto('/');\n")
+        self.assertEqual(len(dropped), 1)
+        self.assertTrue(dropped[0].startswith("removed: "), dropped)
+        pilot = changed_assertions("    assert set(env) == set(RuntimeSettings.environment_names())\n",
+                                   "    assert set(RuntimeSettings.environment_names()) <= set(env)\n")
+        self.assertEqual(len(pilot), 1, pilot)
+        loose = changed_assertions("self.assertEqual(len(rows), 3)\n", "self.assertTrue(len(rows) >= 1)\n")
+        self.assertTrue(loose and loose[0].startswith(("relaxed: ", "removed: ")), loose)
+        skipped = changed_assertions("def test_a():\n    assert a == 1\n", "@pytest.mark.skip\ndef test_a():\n    assert a == 1\n")
+        self.assertEqual(skipped, ["skipped: @pytest.mark.skip"])
+
+
 class PromotedKitCompositionTests(_RegressionProject):
     """A promoted KIT is already in the canonical tree, merged with what later REQs changed: its
     stale KIT copy must not shadow the canonical files, neither as a dependency nor in its own
