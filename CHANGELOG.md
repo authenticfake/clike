@@ -4,6 +4,21 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+## [1.8.5] — 2026-11-15 — No silent waits
+
+### Fixed
+
+- A question a run waits on is a dialog that stays on screen: the local check after a passing solution
+  verification, the local setup offer, the release publication, the installation of a tool an eval needs and the
+  KIT's unfinished dependencies. They were notifications that hide themselves after a few seconds: a
+  `/finalize --verify` that passed waited 1 h 40 min on a question nobody saw. The local check also says in the chat
+  that it is waiting for an answer.
+- A local-agent run CLike rejects, or that fails after the agent worked, is in the telemetry with its outcome
+  (`REJECTED` or `FAILED` and the reason) and its usage: only successful runs were recorded, so a finalize
+  rejected after 35 minutes of agent work left no trace of its cost. The portal record of every agent run carries
+  its outcome too.
+- The solution eval no longer logs `eval verdict not recorded`: it has no gate, so no verdict is kept for reuse.
+
 ## [1.8.4] — 2026-11-15 — A finalize that delegates
 
 ### Fixed
