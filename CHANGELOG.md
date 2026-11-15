@@ -4,6 +4,18 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+## [1.9.6] — 2026-11-15 — A new default, the old one still proven
+
+### Added
+
+- **Declared regression environment.** A MODIFIED REQ that changes a default behind a setting and keeps
+  the old behavior selectable declares `regression_env` in plan.json (e.g. `{"LG_UI_THEME": "classic"}`):
+  the promoted REQs' unchanged checks run under it, every one still blocking, and the new default is
+  proven by the REQ's own checks. A pilot's v2 made a new UI theme the default: 12 release 1 browser
+  suites, written for the classic UI, timed out on the new sign-in page though the requirement keeps them
+  valid under `classic`. `/idea --extend` writes it (cloud and local agents); plain settings only, shown in
+  the report (`env::regression-env`), part of the regression reuse key.
+
 ## [1.9.5] — 2026-11-15 — Faster evals after a repair, room on the disk
 
 ### Added
