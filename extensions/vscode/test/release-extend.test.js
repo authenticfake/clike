@@ -767,3 +767,24 @@ test('local agent: a complete delta passes; a dry or rejected cascade leaves no 
   assert.equal(fs.readFileSync(at('docs/harper/inputs/RELEASE_v1.md'), 'utf8'), '## Requirements\nNo change\n');
   fs.rmSync(root, { recursive: true, force: true });
 });
+
+test('a companion section may be titled with its path; the release commits its UI references', () => {
+  // pilot v2: the agent titled the sections `## docs/harper/ux/DESIGN.md` and CLike warned they were missing
+  const { root, put } = projectWithCompanions();
+  const cascade = { release: 'v2', baseline: 'v1', ...re.releaseDeltas(root, 'v2') };
+  const texts = {
+    'docs/harper/bmad/releases/v2/BMAD_SPEC.md': '## docs/harper/bmad/spec/PRD.md\nx\n\n## `EPICS.md` — v2\nNo change: none\n',
+    'docs/harper/bmad/releases/v2/BMAD_ARCHITECTURE.md': '## Architecture overview\nnot a section per companion\n',
+    'docs/harper/ux/releases/v2/UX.md': '## docs/harper/ux/DESIGN.md\nnew screen\n',
+  };
+  const out = re.checkReleaseDeltas(root, cascade, (rel) => texts[rel] ?? null);
+  const by = Object.fromEntries(out.deltas.map((d) => [d.path, d]));
+  assert.equal(by['docs/harper/bmad/releases/v2/BMAD_SPEC.md'].ok, true);
+  assert.equal(by['docs/harper/ux/releases/v2/UX.md'].ok, true);
+  assert.match(by['docs/harper/bmad/releases/v2/BMAD_ARCHITECTURE.md'].issue, /no section for: ARCHITECTURE\.md/);
+  put('docs/harper/ux/workbench.html', '<html></html>');
+  const committed = re.cascadeCommitFiles(root, 'v2');
+  assert.ok(committed.includes('docs/harper/ux/workbench.html'));
+  assert.ok(!committed.includes('docs/harper/ux/DESIGN.md'));   // the companions are not the release's to commit
+  fs.rmSync(root, { recursive: true, force: true });
+});

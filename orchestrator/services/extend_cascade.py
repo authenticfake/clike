@@ -236,7 +236,7 @@ def companion_rules(opts: Dict[str, Any]) -> List[str]:
         return []
     release = str(opts.get("release") or "the release")
     lines = [
-        f"Companion documents (BMAD/UX): for each delta below write the file with one `## <companion file name>` "
+        f"Companion documents (BMAD/UX): for each delta below write the file with one `## <companion path>` "
         f"section per listed companion, holding what {release} adds or changes in that document, in the "
         "document's own form (new or changed epics, stories and their acceptance, decisions, components and "
         "boundaries, screens, states, journeys), citing the new REQ IDs; `No change: <why>` when the release does "

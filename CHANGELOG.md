@@ -4,6 +4,16 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+## [1.9.2] — 2026-11-15 — Release deltas, read right
+
+### Fixed
+
+- `/idea --extend` no longer warns that a companion delta has no section when its sections are titled with the
+  companion's path (`## docs/harper/ux/DESIGN.md`) instead of its file name: both count, and the rule asks for the
+  path.
+- The release commit of `/idea --extend` holds the UI references in `docs/harper/ux/` (prototypes, mockups, images —
+  not the companions): the prototype a release's KIT builds from had stayed out of git.
+
 ## [1.9.1] — 2026-11-15 — A README that shows
 
 ### Fixed

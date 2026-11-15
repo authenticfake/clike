@@ -121,8 +121,12 @@ function checkReleaseDeltas(root, cascade, current) {
   for (const c of cascade.companions || []) {
     const text = current(c.delta);
     if (text == null) { note(c.delta, `not written — the later phases read ${c.files.length} companion(s) as the previous release left them`); continue; }
-    const missing = c.files.map((f) => path.posix.basename(f.path))
-      .filter((name) => !new RegExp(`^##\\s+\\W?${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'im').test(text));
+    // a section per companion, titled with its file name or its path (`## PRD.md`, `## docs/harper/bmad/spec/PRD.md`)
+    const headings = String(text).split(/\r?\n/).filter((l) => /^##\s/.test(l)).map((l) => l.replace(/[`*]/g, ''));
+    const missing = c.files.map((f) => path.posix.basename(f.path)).filter((name) => {
+      const re = new RegExp(`(^##\\s+|[\\s/])${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\s|$)`, 'i');
+      return !headings.some((h) => re.test(h));
+    });
     note(c.delta, missing.length ? `no section for: ${missing.join(', ')}` : '');
   }
   return { warnings, deltas };
@@ -450,6 +454,14 @@ function cascadeCommitFiles(root, release) {
   if (/^v\d+$/.test(String(release || ''))) {
     for (const dir of ['docs/inputs', 'docs/reference', 'docs/harper/bmad/releases', 'docs/harper/ux/releases']) walk(`${dir}/${release}`);
     if (read(root, `${INPUTS_DIR}/RELEASE_${release}.md`) != null) out.push(`${INPUTS_DIR}/RELEASE_${release}.md`);
+    // the UI references the release brings (prototypes, mockups, images in docs/harper/ux/): the KIT builds from
+    // them, so they are in git with the release — a pilot's v2 prototype stayed untracked
+    const ux = [];
+    for (const f of filesUnder(path.join(root, 'docs', 'harper', 'ux'))) {
+      const rel = posixRel(root, f);
+      if (!rel.split('/').includes('releases') && !/\.md$/i.test(rel)) ux.push(rel);
+    }
+    out.push(...ux);
   }
   return out;
 }
