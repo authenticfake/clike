@@ -572,7 +572,7 @@ async function clikeGitSync(phase, runId, reqId, changedFiles, opts, settings, o
           );
         }
       }
-      await gitRunVerbose(['merge', '--no-ff', targetBranch, '-m', `merge: ${reqId} via gate [runId=${runId}]`], gitCtx, 'git', out);
+      await mergeRetryingTransient(['merge', '--no-ff', targetBranch, '-m', `merge: ${reqId} via gate [runId=${runId}]`], gitCtx, out, log);
       if (hasRemote && autoPush && remoteInSync) {
         try { await gitRunVerbose(['push', s.gitRemote, defaultBranch], gitCtx, 'git', out); }
         catch (e) {
@@ -630,12 +630,36 @@ async function clikeGitSync(phase, runId, reqId, changedFiles, opts, settings, o
 }
 
 
+// A merge that fails before touching anything because another git process holds the index for a
+// moment (the editor's own git refreshing after a switch of thousands of files): `fatal: stash failed`,
+// `Unable to create '.git/index.lock'`. lead-generation v3 REQ-026: promoted, not merged, and the
+// autopilot built it again on main. Retried; any other failure (a conflict) is thrown at once.
+const TRANSIENT_GIT_RE = /stash failed|index\.lock|Unable to create .*\.lock|cannot lock ref|Another git process seems to be running/i;
+const MERGE_RETRY_DELAYS_MS = [1500, 4000, 8000];
+
+async function mergeRetryingTransient(args, gitCtx, out, log, delays = MERGE_RETRY_DELAYS_MS) {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await gitRunVerbose(args, gitCtx, 'git', out);
+    } catch (e) {
+      const text = `${e?.message || ''}\n${e?.stderr || ''}`;
+      if (attempt >= delays.length || !TRANSIENT_GIT_RE.test(text)) throw e;
+      log(`[harperGit] merge failed for a transient reason (${text.trim().split('\n')[0]}): retry ${attempt + 1}/${delays.length}`);
+      try { await gitRunVerbose(['merge', '--abort'], gitCtx, 'git', out); } catch { /* nothing started */ }
+      await new Promise((resolve) => setTimeout(resolve, delays[attempt]));
+    }
+  }
+}
+
 async function stashLocalSessionNoise(gitCtx, log) {
   try {
-    await gitRunVerbose(
+    const outText = String(await gitRunVerbose(
       ['stash', 'push', '-m', 'clike-session-noise', '--', '.clike/sessions/harper.jsonl'],
       gitCtx
-    );
+    ) || '');
+    // nothing to stash: no entry was made, so nothing is popped later (an older stash of the
+    // developer's would be applied instead)
+    if (/No local changes to save/i.test(outText)) return false;
     log('[harperGit] stashed local session noise');
     return true;
   } catch (e) {
@@ -654,6 +678,9 @@ async function popLocalSessionNoise(gitCtx, log) {
 }
 
 module.exports = {
+    mergeRetryingTransient,
+    stashLocalSessionNoise,
+    TRANSIENT_GIT_RE,
     porcelainPaths,
     repositoryDefaultBranch,
     clikeGitSync,
