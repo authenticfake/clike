@@ -149,7 +149,10 @@ changed (`src/` of the KIT): a passing run of a nondeterministic test may still 
 `/autopilot` chains, for every REQ of the plan, `/kit`, `/eval --fix` and `/gate` through the same
 handlers (any executor), so the loop above runs for each REQ without anyone typing. A REQ whose
 loop stops is parked with the reason and the REQs that do not depend on it go on; a provider quota
-or rate limit waits and retries. See [commands.md](commands.md#autopilot).
+or rate limit waits and retries. After each gate it checks that the REQ reads `done` on the branch the
+run goes on with: if the merge into the default branch did not happen, the run stops and says how to merge,
+and a REQ the run promoted is never built again. An eval interrupted before a verdict runs once more. See
+[commands.md](commands.md#autopilot).
 
 ## Following a run
 

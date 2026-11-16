@@ -8167,6 +8167,13 @@ async function cmdOpenChat(context) {
           break;
         }
         const reqId = next.req_id;
+        // never build again a REQ this run promoted (its promotion is on a branch the run is not on)
+        if (run.reqs.some((r) => r.req_id === reqId && /^promoted/.test(String(r.result)))) {
+          run.outcome = 'stopped: a promoted REQ is not merged';
+          run.next = autopilot.notMergedReason(plan, reqId);
+          say(`⏸ AUTOPILOT stopped: ${run.next}`);
+          break;
+        }
         // the plan itself says the REQ cannot be built yet (decisions left open): no agent run for
         // nothing; parked for this run only, so the next /autopilot checks it again
         const blockedBy = next.step === 'kit'
@@ -8218,6 +8225,19 @@ async function cmdOpenChat(context) {
             entry.review_required = !!res.outcome.review_required;
             delete run.parkedInfo[reqId];
             say(`✔ AUTOPILOT ${reqId} promoted${entry.review_required ? ' (REVIEW: the repair fixed locked tests, check them)' : ''}.`);
+            // the promotion must be on the branch the run goes on with, else the next pick rebuilds it
+            let branch = '';
+            try { branch = require('child_process').execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: toFsPath(ws), stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(); } catch { /* not a repo */ }
+            const notMerged = autopilot.notMergedReason(await readPlanJson(ws), reqId, branch);
+            if (notMerged) {
+              entry.result = 'promoted_not_merged';
+              entry.reason = notMerged;
+              run.stop = 'not-merged';
+              run.outcome = 'stopped: a promoted REQ is not merged';
+              run.next = notMerged;
+              say(`⏸ AUTOPILOT stopped: ${notMerged}`);
+              break;
+            }
           }
           if (run.stop) break;
         }

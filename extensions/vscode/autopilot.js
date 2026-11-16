@@ -182,7 +182,23 @@ function autopilotReportMarkdown(run) {
   return lines.join('\n');
 }
 
+/**
+ * After a passing gate: the REQ must read `done` in the plan of the branch the run goes on with. If
+ * not, its promotion did not reach that branch (the merge into the default branch failed) and the
+ * next pick would build it again from scratch (lead-generation v3: REQ-026 promoted on its branch,
+ * `git merge` failed, the autopilot started a new KIT of REQ-026 on main). Returns the reason to
+ * stop, or '' when the REQ is done there.
+ */
+function notMergedReason(plan, reqId, branch = '') {
+  const req = (Array.isArray(plan?.reqs) ? plan.reqs : []).find((r) => String(r?.id || '').toUpperCase() === String(reqId).toUpperCase());
+  if (req && String(req.status || '').toLowerCase() === 'done') return '';
+  const where = branch ? ` (${branch})` : '';
+  return `${reqId} passed the gate and was promoted on its branch, but the plan of the current branch${where} still shows it ` +
+    `${req ? `"${req.status || 'no status'}"` : 'missing'}: the merge into the default branch did not happen (see the Git message of the gate). ` +
+    `Merge it (git merge --no-ff feature/${String(reqId).toLowerCase()}), then /autopilot to go on.`;
+}
+
 module.exports = {
   STEPS, STATE_REL, REPORT_REL, resumeStep, nextAutopilotReq, isQuotaFailure, transientFailure, keptParked, stepOutcome,
-  executorState, methodologyFields, autopilotReportMarkdown, releaseParked,
+  executorState, methodologyFields, autopilotReportMarkdown, releaseParked, notMergedReason,
 };

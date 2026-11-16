@@ -130,3 +130,13 @@ test('an accepted test change releases the parked REQ: its files did not change,
   assert.strictEqual(autopilot.releaseParked(state, 'REQ-004'), null);
   assert.strictEqual(autopilot.releaseParked({}, 'REQ-003'), null);
 });
+
+test('a REQ promoted on its branch but not done on the current one stops the run (lead-generation v3 REQ-026)', () => {
+  const done = { reqs: [{ id: 'REQ-025', status: 'done' }, { id: 'REQ-026', status: 'done' }] };
+  const open = { reqs: [{ id: 'REQ-025', status: 'done' }, { id: 'REQ-026', status: 'open' }] };
+  assert.equal(autopilot.notMergedReason(done, 'REQ-026', 'main'), '');
+  const reason = autopilot.notMergedReason(open, 'REQ-026', 'main');
+  assert.match(reason, /REQ-026 passed the gate.*\(main\).*"open".*merge into the default branch did not happen/);
+  assert.match(reason, /git merge --no-ff feature\/req-026/);
+  assert.match(autopilot.notMergedReason(null, 'REQ-026'), /missing/);
+});

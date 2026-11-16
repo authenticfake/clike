@@ -360,3 +360,54 @@ test('a project with its own default branch keeps it: CLike never creates the co
   assert.match(git(plain, 'log', 'main', '-1', '--name-only', '--format='), /docs\/harper\/IDEA\.md/);
   assert.equal(git(plain, 'rev-parse', '--abbrev-ref', 'HEAD'), 'feature/x');
 });
+
+test('a merge blocked for a moment by another git process is retried (lead-generation v3 REQ-026)', async () => {
+  const { mergeRetryingTransient } = require('../git');
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'clike-merge-retry-'));
+  const git = (...args) => execFileSync('git', args, { cwd: repo, stdio: ['ignore', 'pipe', 'pipe'] }).toString();
+  git('init', '-q', '-b', 'main');
+  git('config', 'user.email', 't@t'); git('config', 'user.name', 't');
+  fs.writeFileSync(path.join(repo, 'a.txt'), 'a\n'); git('add', 'a.txt'); git('commit', '-q', '-m', 'a');
+  git('switch', '-q', '-c', 'feature/req-001');
+  fs.writeFileSync(path.join(repo, 'b.txt'), 'b\n'); git('add', 'b.txt'); git('commit', '-q', '-m', 'b');
+  git('switch', '-q', 'main');
+  // the editor's git holds the index while the merge starts
+  const lock = path.join(repo, '.git', 'index.lock');
+  fs.writeFileSync(lock, '');
+  setTimeout(() => fs.rmSync(lock, { force: true }), 300);
+  const logs = [];
+  await mergeRetryingTransient(['merge', '--no-ff', 'feature/req-001', '-m', 'merge: REQ-001 via gate'], { cwd: repo }, null, (m) => logs.push(m), [600, 600]);
+  assert.match(git('log', '-1', '--format=%s'), /merge: REQ-001 via gate/);
+  assert.ok(logs.some((m) => /transient reason/.test(m)));
+  fs.rmSync(repo, { recursive: true, force: true });
+});
+
+test('a merge that fails for a real reason is not retried', async () => {
+  const { mergeRetryingTransient } = require('../git');
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'clike-merge-real-'));
+  const git = (...args) => execFileSync('git', args, { cwd: repo, stdio: ['ignore', 'pipe', 'pipe'] }).toString();
+  git('init', '-q', '-b', 'main');
+  git('config', 'user.email', 't@t'); git('config', 'user.name', 't');
+  fs.writeFileSync(path.join(repo, 'a.txt'), 'a\n'); git('add', 'a.txt'); git('commit', '-q', '-m', 'a');
+  const logs = [];
+  await assert.rejects(mergeRetryingTransient(['merge', '--no-ff', 'no-such-branch'], { cwd: repo }, null, (m) => logs.push(m), [10, 10]));
+  assert.equal(logs.length, 0);
+  fs.rmSync(repo, { recursive: true, force: true });
+});
+
+test('nothing to stash: no session-noise entry, so a developer stash is never popped', async () => {
+  const { stashLocalSessionNoise } = require('../git');
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'clike-stash-noise-'));
+  const git = (...args) => execFileSync('git', args, { cwd: repo, stdio: ['ignore', 'pipe', 'pipe'] }).toString();
+  git('init', '-q', '-b', 'main');
+  git('config', 'user.email', 't@t'); git('config', 'user.name', 't');
+  fs.mkdirSync(path.join(repo, '.clike', 'sessions'), { recursive: true });
+  fs.writeFileSync(path.join(repo, '.clike', 'sessions', 'harper.jsonl'), 'x\n');
+  git('add', '.'); git('commit', '-q', '-m', 'a');
+  fs.writeFileSync(path.join(repo, 'other'), 'y\n'); git('add', 'other'); git('stash', '-q', '-m', 'developer stash');
+  assert.equal(await stashLocalSessionNoise({ cwd: repo }, () => {}), false);
+  fs.appendFileSync(path.join(repo, '.clike', 'sessions', 'harper.jsonl'), 'y\n');
+  assert.equal(await stashLocalSessionNoise({ cwd: repo }, () => {}), true);
+  assert.match(git('stash', 'list'), /clike-session-noise[\s\S]*developer stash/);
+  fs.rmSync(repo, { recursive: true, force: true });
+});

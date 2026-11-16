@@ -4,6 +4,23 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+## [1.10.2] — 2026-11-16 — A promoted REQ reaches the default branch
+
+### Fixed
+
+- **The gate merge is retried on a transient git failure.** After a passing gate CLike switches to the default
+  branch and merges the REQ's branch; when another git process holds the index for a moment (the editor's own
+  git refreshing after a switch of thousands of files) the merge stopped with `fatal: stash failed` and the REQ,
+  promoted on its branch, never reached the default branch. A merge failing on a lock or a failed stash is now
+  retried (three times, short delays); a real failure (a conflict, an unknown branch) is reported at once.
+- **/autopilot never builds a promoted REQ again.** After a gate it checks that the REQ reads `done` in the plan
+  of the branch it goes on with; if not, the merge did not happen and the run stops and says how to merge,
+  instead of picking the same REQ as open and starting a new KIT of it (lead-generation v3: REQ-026 promoted on
+  `feature/req-026`, a new KIT of REQ-026 started on `main`). A REQ this run promoted is never picked again.
+- **A developer's stash is never popped by the gate merge.** Before switching branch CLike stashes its session
+  log; with nothing to stash git creates no entry, yet the stash was popped afterwards — the developer's newest
+  stash. Nothing is popped now when nothing was stashed.
+
 ## [1.10.1] — 2026-11-16 — The eval after a good KIT
 
 A KIT that passed its own checks went to an eval that failed for reasons a repair could not, or need not, fix
