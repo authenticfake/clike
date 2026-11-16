@@ -412,3 +412,17 @@ test('an epic (C3) gets one repair cycle per planned feature at least', () => {
   assert.equal(epicMaxCycles(plan, 'REQ-005', 2), 2);
   assert.equal(epicMaxCycles(null, 'REQ-004', 2), 2);
 });
+
+const { evalInterrupted } = require('../auto-eval');
+
+test('an eval broken before any verdict (timeout, sleep, disconnection) is run again, not parked', () => {
+  const broken = (summary) => ({ status: 'FAIL', cases: [], summary });
+  assert.equal(evalInterrupted(broken('Eval runs/kit/REQ-026/ci/LTC.json: EVAL ERROR\nReport: ServiceHttpError: Request timeout after 7200000ms')), true);
+  assert.equal(evalInterrupted(broken('EVAL ERROR\nReport: POST http://localhost:8080/v1/eval/run failed: socket hang up')), true);
+  assert.equal(evalInterrupted(broken('EVAL ERROR\nReport: HTTP 502: bad gateway')), true);
+  // a real verdict, or an error the code causes, still goes the usual way
+  assert.equal(evalInterrupted({ status: 'FAIL', cases: [{ name: 'unit', passed: false }], summary: 'Request timeout after 1ms' }), false);
+  assert.equal(evalInterrupted(broken('EVAL ERROR\nReport: unreadable LTC profile')), false);
+  assert.equal(evalInterrupted({ status: 'PASS', cases: [], summary: 'socket hang up' }), false);
+  assert.equal(evalInterrupted(null), false);
+});

@@ -5,9 +5,13 @@ const { persistTelemetryVSCode, sandboxRunTelemetry } = require('./telemetry');
 const { orchestratorUrl, requestJson } = require('./orchestrator-client');
 
 // --- api.js ---
-// Eval/gate run the REQ checks in the sandbox and may take minutes: same budget as a Harper phase.
+// Eval/gate run the REQ checks in the sandbox and may take long (every promoted REQ's regression):
+// the wait is the Harper phase budget, never less than the orchestrator's own wait on the sandbox
+// (CLIKE_EVAL_SANDBOX_TIMEOUT_S, 6 h) plus a margin, so the client never gives up on an eval still running.
+const EVAL_MIN_TIMEOUT_MS = (6 * 60 + 10) * 60 * 1000;
 function evalTimeoutMs() {
-  return 60 * 1000 * Number(vscode.workspace.getConfiguration('clike').get('harperTimeout', 25));
+  const minutes = Number(vscode.workspace.getConfiguration('clike').get('harperTimeout', 25));
+  return Math.max(EVAL_MIN_TIMEOUT_MS, 60 * 1000 * (Number.isFinite(minutes) ? minutes : 25));
 }
 
 // Auto-eval L2: eval/gate also re-run the checks of dependency and promoted REQs.

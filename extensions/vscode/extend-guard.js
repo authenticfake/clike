@@ -113,9 +113,40 @@ function validateExtendPlan({ beforeText, afterText, anchorReq = '', explicitReq
   return { ok: errors.length === 0, errors, warnings, added, restored, planText };
 }
 
+// What a release declared for a REQ (/idea --extend, /extend, a repair's declared supersedes): the
+// eval and the gate read them from plan.json. A /plan rewrite is free to restructure a REQ, but the
+// model often drops these (lead-generation v3: REQ-026 lost `amends REQ-024` and its `supersedes`,
+// the eval then blocked a change the release had allowed, and a repair worked around it).
+const RELEASE_FIELDS = ['change', 'release', 'origin', 'amends', 'retires', 'supersedes', 'keeps', 'regression_env'];
+const declared = (v) => v !== undefined && v !== null && v !== '' &&
+  !(Array.isArray(v) && !v.length) && !(typeof v === 'object' && !Array.isArray(v) && !Object.keys(v).length);
+
+/**
+ * A /plan result with the release fields of its REQs carried over from the plan before the run,
+ * when the new plan omits them (absent, null or empty). A value the new plan sets is kept.
+ * Returns { planText, carried: [{ id, fields }] }; planText is afterText when nothing is carried.
+ */
+function carryReleaseFields({ beforeText, afterText }) {
+  let before;
+  let after;
+  try { before = JSON.parse(String(beforeText || '')); after = JSON.parse(String(afterText || '')); } catch {
+    return { planText: afterText, carried: [] };
+  }
+  const prior = new Map((reqsOf(before) || []).map((r) => [String(r.id || ''), r]));
+  const carried = [];
+  for (const req of reqsOf(after) || []) {
+    const old = prior.get(String(req.id || ''));
+    if (!old) continue;
+    const fields = RELEASE_FIELDS.filter((k) => declared(old[k]) && !declared(req[k]));
+    for (const k of fields) req[k] = old[k];
+    if (fields.length) carried.push({ id: String(req.id), fields });
+  }
+  return { planText: carried.length ? `${JSON.stringify(after, null, 2)}\n` : afterText, carried };
+}
+
 /** plan.json content now on disk, or null. */
 function readPlanText(workspaceRoot) {
   try { return fs.readFileSync(path.join(workspaceRoot, 'docs', 'harper', 'plan.json'), 'utf8'); } catch { return null; }
 }
 
-module.exports = { validateExtendPlan, readPlanText, changedFields };
+module.exports = { validateExtendPlan, readPlanText, changedFields, carryReleaseFields, RELEASE_FIELDS };

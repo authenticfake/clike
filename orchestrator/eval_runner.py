@@ -771,6 +771,24 @@ def _is_kit_regression_check(name: str) -> bool:
     return bool({t for t in re.split(r"[^a-z0-9]+", str(name or "").lower()) if t} & _KIT_REGRESSION_TOKENS)
 
 
+# A check that prepares what the next ones run with (dependencies, a virtualenv, an install): one
+# check run alone needs it first (lead-generation v3: `eval-check rdi_25` found no virtualenv, a run
+# of the agent's budget spent on nothing).
+_SETUP_CHECK_TOKENS = frozenset({"dependencies", "deps", "install", "setup", "bootstrap", "venv", "virtualenv", "prepare"})
+
+
+def _is_setup_check(name: str) -> bool:
+    return bool({t for t in re.split(r"[^a-z0-9]+", str(name or "").lower()) if t} & _SETUP_CHECK_TOKENS)
+
+
+def _with_setup_checks(names: List[str], only: set) -> set:
+    """The selected checks plus the setup checks the LTC runs before the first of them."""
+    first = next((i for i, n in enumerate(names) if n in only), None)
+    if first is None:
+        return set(only)
+    return set(only) | {n for n in names[:first] if _is_setup_check(n)}
+
+
 _TEST_FAILURES_RE = re.compile(r"\b\d+ (?:failed|errors?)\b|^FAILED ", re.MULTILINE)
 # CLike's own promotion leftovers next to canonical files (<name>.conflict-REQ-…, .incoming-REQ-…,
 # .bak-<n>): never source, so never composed into an eval workspace (a format check walked into
@@ -4486,6 +4504,14 @@ class EvalRunner:
                     f"{[str(c.get('name') or 'case') for c in norm_cases]}",
                     cmd=None, cwd=str(default_cwd), blocking=True,
                 ))
+            names = [str(c.get("name") or "case") for c in norm_cases]
+            setup = sorted(_with_setup_checks(names, only) - only)
+            if setup:
+                only = only | set(setup)
+                out_cases.append(EvalCase(
+                    name="setup-checks::added", passed=True, code=0, stderr="", cmd=None, cwd=str(default_cwd), blocking=False,
+                    stdout=f"also run: {', '.join(setup)} (they prepare the environment the selected checks run with)",
+                ))
             norm_cases = [c for c in norm_cases if str(c.get("name") or "case") in only]
         elif regression and not self.regression:
             # The candidate's own "regression" checks re-run tests of earlier REQs (B2B REQ-025,
@@ -5027,6 +5053,43 @@ class EvalRunner:
             and str(r["id"]) not in retired
             and (self.project_root / "runs" / "kit" / self._safe_req_id(str(r["id"])) / "ci" / "LTC.json").is_file()
         ]
+
+    def _retry_environment_setup(
+        self, runner: "EvalRunner", profile: Path, ltc: Dict[str, Any], other: str, report: EvalReport,
+    ) -> EvalReport:
+        """Run a promoted REQ's regression once more when its environment did not come up: a setup step
+        failed (a database not created, dependencies not installed) and its checks did not run (blocked).
+        Under parallel regressions such a failure is the sandbox's, not the candidate's (lead-generation
+        v3: REQ-006's virtualenv lacked pytest and REQ-007's database timed out; both passed unchanged on
+        the next eval, after a repair cycle spent on a candidate with nothing to fix). A setup that fails
+        again keeps its verdict, and the usual checks (baseline, service broken by the candidate) follow."""
+        # a tool or a container runtime the sandbox lacks fails the same way every time: never re-run
+        lasting = (_MISSING_TOOLS_NOTE, sandbox_resources.CONTAINER_RUNTIME_NOTE, sandbox_resources.MANUAL_CHECK_NOTE)
+
+        def setup_failures(rep: EvalReport) -> List[str]:
+            return [c.name for c in rep.cases
+                    if not c.passed and (c.blocked or (c.blocking and c.name.startswith("env::")))
+                    and not any(note in (c.stderr or "") for note in lasting)]
+        failed = setup_failures(report)
+        if not failed or getattr(runner, "_reused_cases", None) is not None \
+                or (self.cancel_event is not None and self.cancel_event.is_set()):
+            return report
+        log.info("regression %s: environment not set up (%s), running it once more", other, ", ".join(failed[:6]))
+        try:
+            again = runner.run_profile(profile=str(profile), ltc=ltc, req_id=other)
+        except Exception as exc:  # the first verdict stands
+            log.warning("regression %s: second setup failed to run: %s", other, exc)
+            return report
+        if setup_failures(again) or (self.cancel_event is not None and self.cancel_event.is_set()):
+            return report
+        shown = ", ".join(failed[:6]) + ("…" if len(failed) > 6 else "")
+        again.cases.insert(0, EvalCase(
+            name="env::setup-retried", passed=True, code=0, stderr="", blocking=False,
+            stdout=(f"[CLike EvalRunner] {other}'s environment did not come up on the first attempt ({shown}) and did on "
+                    "the second, with the same code: a sandbox setup failure under load, not a regression of this candidate."),
+        ))
+        log.info("regression %s: environment set up on the second attempt", other)
+        return again
 
     def _retry_failed_regression_tests(
         self, runner: "EvalRunner", profile: Path, ltc: Dict[str, Any], other: str, report: EvalReport,
@@ -5602,6 +5665,7 @@ class EvalRunner:
             if not [c for c in self._normalize_cases(ltc) if str(c.get("name") or "case") not in dropped]:
                 return cases  # every check of the amended REQ is replaced: nothing left to regress
         report = runner.run_profile(profile=str(profile), ltc=ltc, req_id=other)
+        report = self._retry_environment_setup(runner, profile, ltc, other, report)
         reused = getattr(runner, "_reused_cases", None)
         if reused is not None:
             age = _human_age(time.time() - (runner._regression_reuse.reused_at or time.time()))

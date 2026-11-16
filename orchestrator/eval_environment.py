@@ -214,14 +214,28 @@ def _scheme_for(spec: VariableSpec, admin_scheme: str) -> str:
     return scheme or admin_scheme or "postgresql"
 
 
-def create_postgres_database(admin_url: str, database: str) -> None:
+# Parallel regressions create their databases at the same moment on one server: a connection
+# refused or slow under that load is retried (lead-generation v3: REQ-007's database timed out once,
+# the eval failed and a repair cycle went to a candidate that had nothing to fix).
+_PG_ATTEMPTS = 4
+_PG_BACKOFF_S = (2.0, 5.0, 10.0)
+
+
+def create_postgres_database(admin_url: str, database: str, sleep: Callable[[float], None] = time.sleep) -> None:
     import psycopg
 
     parts = urlsplit(admin_url)
     dsn = urlunsplit(("postgresql", parts.netloc, parts.path or "/postgres", parts.query, ""))
-    with psycopg.connect(dsn, autocommit=True, connect_timeout=5) as conn:
-        conn.execute(f'DROP DATABASE IF EXISTS "{database}" WITH (FORCE)')
-        conn.execute(f'CREATE DATABASE "{database}"')
+    for attempt in range(_PG_ATTEMPTS):
+        try:
+            with psycopg.connect(dsn, autocommit=True, connect_timeout=10) as conn:
+                conn.execute(f'DROP DATABASE IF EXISTS "{database}" WITH (FORCE)')
+                conn.execute(f'CREATE DATABASE "{database}"')
+            return
+        except psycopg.OperationalError:
+            if attempt == _PG_ATTEMPTS - 1:
+                raise
+            sleep(_PG_BACKOFF_S[min(attempt, len(_PG_BACKOFF_S) - 1)])
 
 
 def provision_postgres(spec: VariableSpec, admin_url: str, project_key: str, req_id: str,
