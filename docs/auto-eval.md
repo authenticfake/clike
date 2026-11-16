@@ -185,6 +185,7 @@ full eval. To keep it short and stable:
 | Acceptance surface changed | `the acceptance surface (test/ or ci/) of REQ-002 changed after the lock: ci/LTC.json modified` | tests/LTC of that REQ (the candidate, or a promoted REQ its regression runs) were edited outside the governed path: edited on purpose and nothing weakened → `/eval REQ-002 --accept "<why>"` (audited); otherwise restore them or re-run `/kit` |
 | REQ not KIT-ready | `stopped before a repair: not KIT-ready, the plan waits for your answers: …` (the plan marks it `kit_ready: false`; no hint given) | answer in the SPEC Note section and run `/spec`, `/plan`, `/kit`; or `/eval REQ-002 --fix "<your decisions>"` to give the answers to the repair |
 | Repair changed a locked test without proof | `stopped: the repair says a locked test is wrong … Its change is saved: runs/eval/<REQ>/proposed_test_fix_<ts>.patch` (the lock restored the test; the eval showed no error raised in the test itself) | review the patch: if the test is wrong, `/eval REQ-002 --accept "<why>"` applies it and records your reason (audited); if the code is wrong, `/eval REQ-002 --fix "<hint for the code>"` |
+| Eval interrupted | `↻ the eval was interrupted before a verdict (…); running it again` (timeout, disconnection, the machine asleep, the stack restarting: no check ran) | nothing: the same eval runs once more in the same cycle; if it breaks again the loop stops with `eval failed without failing checks` |
 | Nothing to repair | `eval failed without failing checks` | see the eval report (e.g. integrity or setup errors) |
 
 The same outcomes apply to `/gate --fix` (`AUTO-GATE`, `gate failed without failing checks`).
@@ -367,6 +368,19 @@ by the declaring REQ's own checks. Like `supersedes`, the declaration holds whil
 candidate and once it is promoted: for the REQs delivered before it (plan order); the declaring REQ and
 the ones after it run without it. The report says it (`env::regression-env`), and it is part of what a
 reused regression must match.
+
+These declarations survive a later `/plan`: when its rewrite of plan.json omits the release fields an
+existing REQ had (`change`, `amends`, `supersedes`, `regression_env`, `release`, `origin`, `retires`,
+`keeps`), CLike puts them back from the plan before the run and says so in the chat
+(`ℹ /plan dropped release fields of existing REQs; kept from the plan before the run: …`). A value the
+new plan sets is kept.
+
+A promoted REQ whose **environment does not come up** in its regression (a setup step fails — a database
+not created, dependencies not installed — and its checks are blocked) is run once more before any verdict.
+If it comes up the second time the report says it (`regression::<REQ>::env::setup-retried`) and nothing
+goes to the repair; if it fails again the first verdict stands and the usual diagnosis follows. A tool or a
+container runtime the sandbox lacks fails the same way every time and is never re-run. Test databases are
+created with retries (four attempts, short backoff) when the server is slow under parallel regressions.
 
 Declared changes of a release (`/idea --extend`) narrow the regression, when the REQ that declares
 them is promoted or is the candidate: the checks a MODIFIED REQ `supersedes` (`REQ-x#check`) are

@@ -286,7 +286,8 @@ Both local executors currently support:
   repair task, the failed checks (with their errors) and the rules in the prompt itself
   (`repair_context.auto_eval` in the context); the agent can re-run the failed checks in the real
   eval sandbox with `node .clike/bin/eval-check.mjs <check>…` (served by the extension,
-  `clike.autoEval.agentEvalChecks`), without the token or network access
+  `clike.autoEval.agentEvalChecks`), without the token or network access; the setup checks the LTC
+  runs before the selected ones (dependencies, install, virtualenv) run with them
 - verify before finish: a base KIT (and the code stage of acceptance-first) runs all its checks in
   the real eval sandbox before it finishes, with `node .clike/bin/eval-check.mjs` and no arguments
   (databases, browsers and registry installs its own sandbox may lack; up to

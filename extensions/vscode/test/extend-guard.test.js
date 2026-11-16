@@ -49,3 +49,33 @@ test('extend guard: a new id below the last existing one does not continue the s
   const v = validateExtendPlan({ beforeText: before, afterText: plan(req('REQ-001'), req('REQ-005'), req('REQ-003')) });
   assert.match(v.errors.join(), /new REQ-003 does not continue the sequence \(last existing is REQ-005\)/);
 });
+
+const { carryReleaseFields } = require('../extend-guard');
+
+test('/plan keeps the release fields of existing REQs the model dropped (lead-generation v3 REQ-026)', () => {
+  const supersedes = [{ check: 'REQ-024#test/req_024/composition.test.ts::WBU-02', reason: 'classic shows v3 data' }];
+  const before = plan(
+    req('REQ-024', { change: 'MODIFIED', release: 'v2', amends: ['REQ-001'], regression_env: { LG_UI_THEME: 'classic' } }),
+    req('REQ-026', { status: 'open', change: 'MODIFIED', release: 'v3', origin: 'extend:EXTEND_x.md', amends: ['REQ-024'], supersedes }),
+  );
+  const after = plan(
+    req('REQ-024', { title: 'rewritten', regression_env: null }),
+    req('REQ-026', { status: 'open', release: 'v4', amends: [] }),
+    req('REQ-027', { status: 'open' }),
+  );
+  const r = carryReleaseFields({ beforeText: before, afterText: after });
+  const reqs = Object.fromEntries(JSON.parse(r.planText).reqs.map((x) => [x.id, x]));
+  assert.equal(reqs['REQ-024'].title, 'rewritten');  // the plan's own rewrite stays
+  assert.deepEqual(reqs['REQ-024'].regression_env, { LG_UI_THEME: 'classic' });
+  assert.deepEqual([reqs['REQ-026'].change, reqs['REQ-026'].amends, reqs['REQ-026'].supersedes], ['MODIFIED', ['REQ-024'], supersedes]);
+  assert.equal(reqs['REQ-026'].release, 'v4');  // a value the new plan sets is never overwritten
+  assert.equal(reqs['REQ-027'].change, undefined);
+  assert.deepEqual(r.carried.map((c) => c.id), ['REQ-024', 'REQ-026']);
+});
+
+test('/plan carry-over: nothing dropped, or an unreadable plan, leaves the result untouched', () => {
+  const same = plan(req('REQ-001', { change: 'ADDED' }));
+  assert.deepEqual(carryReleaseFields({ beforeText: same, afterText: same }), { planText: same, carried: [] });
+  assert.deepEqual(carryReleaseFields({ beforeText: null, afterText: same }), { planText: same, carried: [] });
+  assert.deepEqual(carryReleaseFields({ beforeText: same, afterText: '{oops' }), { planText: '{oops', carried: [] });
+});

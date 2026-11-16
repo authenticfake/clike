@@ -4,6 +4,32 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+## [1.10.1] — 2026-11-16 — The eval after a good KIT
+
+A KIT that passed its own checks went to an eval that failed for reasons a repair could not, or need not, fix
+(lead-generation release 3: three repair cycles on one REQ, two of them caused by CLike).
+
+### Fixed
+
+- **/plan keeps what the release declared.** A /plan rewrite dropped the release fields /idea --extend had
+  written for existing REQs (`change`, `amends`, `supersedes`, `regression_env`, `release`, `origin`, `retires`,
+  `keeps`): the eval then blocked a change the release had allowed, and a repair had to work around it. They are
+  now carried over from the plan before the run when the new plan omits them (a value the new plan sets is kept),
+  cloud and local agents alike, and the chat says which ones.
+- **A regression whose environment did not come up runs once more.** When a promoted REQ's setup fails (a
+  database not created, dependencies not installed) and its checks do not run, CLike runs that REQ's regression
+  again before any verdict; if it comes up the second time, it is noted as a sandbox setup failure, not a
+  regression of the candidate, and no repair starts. A missing tool or container runtime is never re-run.
+- **Sandbox databases under load.** Creating a REQ's test database is retried (four attempts, short backoff)
+  when the server is slow or refuses connections while parallel regressions start.
+- **A check run alone gets its setup.** `eval-check <check>` during a KIT or a repair also runs the setup checks
+  the LTC runs before it (dependencies, install, virtualenv), so a single check no longer fails for a missing
+  environment.
+- **An interrupted eval runs again.** An eval call that breaks before any verdict (timeout, disconnection, the
+  machine asleep, the stack restarting) is run once more in the same cycle instead of stopping the auto-eval and
+  parking the REQ in /autopilot. The client now waits for an eval at least as long as the orchestrator waits on
+  the sandbox (6 h), whatever the Harper phase timeout.
+
 ## [1.10.0] — 2026-11-16 — Where the time and the money go
 
 ### Added

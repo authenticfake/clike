@@ -231,8 +231,10 @@ const {
   restoreAcceptanceFiles,
   writeRepairNotes,
   snapshotAcceptanceSurface,
+  evalInterrupted,
+  INTERRUPTED_RETRIES,
 } = require('./auto-eval');
-const { validateExtendPlan, readPlanText } = require('./extend-guard');
+const { validateExtendPlan, readPlanText, carryReleaseFields } = require('./extend-guard');
 const releaseExtend = require('./release-extend');
 const adoptLib = require('./adopt');
 const { copyTemplateTree, mergeGitignore, teamProcessRedirect, PROPOSALS_DIR } = require('./init-merge');
@@ -5627,6 +5629,8 @@ async function cmdOpenChat(context) {
           // /extend is append-only: keep the plan as it was, to check the result against it
           // (and to restore it when a local agent already wrote a plan that breaks the rule).
           const extendBefore = phase === 'extend' ? releaseExtend.snapshotDocs(toFsPath(wsroot)) : null;
+          // /plan rewrites plan.json: the release fields of its REQs are carried over if dropped (extend-guard.js)
+          const planBefore = phase === 'plan' ? readPlanText(toFsPath(wsroot)) : null;
           const extendStartedAt = Date.now();
 
           if (phase === 'extend') {
@@ -5887,6 +5891,34 @@ async function cmdOpenChat(context) {
           }
 
           panel.webview.postMessage({ type: 'busy', on: false });
+          if (planBefore) {
+            const root = toFsPath(wsroot);
+            const isAgent = String(_out?.execution?.selected || '').trim() === 'local_agent';
+            const returned = (Array.isArray(_out?.files) ? _out.files : []).filter((f) => String(f?.path || '').replace(/^\.?\//, '') === 'docs/harper/plan.json');
+            const carry = (text) => carryReleaseFields({ beforeText: planBefore, afterText: text });
+            const notes = [];
+            for (const f of returned) {
+              if (typeof f.content !== 'string') continue;
+              const r = carry(f.content);
+              f.content = r.planText;
+              notes.push(...r.carried);
+            }
+            if (isAgent) {
+              const disk = readPlanText(root);
+              const r = disk == null ? null : carry(disk);
+              if (r && r.carried.length) {
+                fsSync.writeFileSync(path.join(root, 'docs', 'harper', 'plan.json'), r.planText, 'utf8');
+                if (!notes.length) notes.push(...r.carried);
+              }
+            }
+            const seen = new Set();
+            const lines = notes.filter((c) => !seen.has(c.id) && seen.add(c.id)).map((c) => `${c.id} (${c.fields.join(', ')})`);
+            if (lines.length) {
+              const message = `ℹ /plan dropped release fields of existing REQs; kept from the plan before the run: ${lines.join('; ')}`;
+              panel.webview.postMessage({ type: 'echo', message });
+              log(`[plan] ${message}`);
+            }
+          }
           if (extendBefore) {
             const commandLabel = msg.__adopt ? '/ADOPT' : msg.__cascade ? '/IDEA --EXTEND' : String(cmd || '').toUpperCase();
             const root = toFsPath(wsroot);
@@ -8253,6 +8285,20 @@ async function cmdOpenChat(context) {
       };
       await handleWebviewMessage(fullMsg);
       if (fullMsg.__report) msg.__report = fullMsg.__report;
+      return;
+    }
+    // the call to the eval broke before any verdict (timeout, disconnection, sleep): the same eval
+    // again, once, in the same cycle; a repair has nothing to work on
+    const interrupted = Number(msg.fix.interrupted || 0);
+    if (evalInterrupted(report) && interrupted < INTERRUPTED_RETRIES && !stopAfterStepRequested(say, `AUTO-EVAL ${reqId}`)) {
+      say(`↻ AUTO-EVAL ${reqId}: the eval was interrupted before a verdict (${String(report?.summary || '').split('\n').find((l) => /^Report:/.test(l)) || 'no checks ran'}); running it again`);
+      const againMsg = {
+        type: 'harperEDD', cmd: 'eval', targets: [reqId], targetReqId: reqId, attachments: [],
+        ...fixCycleMethodology(msg).eval,
+        fix: { ...msg.fix, interrupted: interrupted + 1 },
+      };
+      await handleWebviewMessage(againMsg);
+      if (againMsg.__report) msg.__report = againMsg.__report;
       return;
     }
     const step = nextAutoEvalStep(state, report);

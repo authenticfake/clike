@@ -199,6 +199,18 @@ function declareHint(failures) {
     : '';
 }
 
+// An eval that never reached a verdict because the call to it broke (timeout, disconnection, the
+// machine asleep, the stack restarting): no check ran, so there is nothing to repair; run it again.
+// lead-generation v3 REQ-026: the Mac slept on a flat battery mid-eval and the autopilot parked the REQ.
+const INTERRUPTED_RE = /ServiceHttpError|Request timeout after|\baborted\b|socket hang up|ECONNRESET|ECONNREFUSED|EPIPE|ETIMEDOUT|EHOSTUNREACH|HTTP 49\d|HTTP 50[234]\b|client disconnected/i;
+const INTERRUPTED_RETRIES = 1;
+
+function evalInterrupted(report) {
+  if (!report || evalPassed(report)) return false;
+  if (Array.isArray(report.cases) && report.cases.length) return false;
+  return INTERRUPTED_RE.test(`${report.summary || ''}\n${report.error || ''}\n${report.message || ''}`);
+}
+
 function nextAutoEvalStep(state, report) {
   const step = nextAutoEvalStepRaw(state, report);
   return step.action === 'stop' && step.failures ? { ...step, reason: `${step.reason}${declareHint(step.failures)}` } : step;
@@ -517,6 +529,8 @@ function fixCycleMethodology(msg) {
 }
 
 module.exports = {
+  evalInterrupted,
+  INTERRUPTED_RETRIES,
   epicMaxCycles,
   fixCycleMethodology,
   targetedRegressionReqs,
