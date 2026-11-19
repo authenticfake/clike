@@ -15,8 +15,17 @@ from pydantic import BaseModel
 
 import httpx
 
-from eval_runner import EvalCase, EvalReport, EvalRunner, eval_progress, report_from_dict, report_to_dict
-from services import eval_telemetry, eval_verdicts, lockfiles
+from eval_runner import (
+    TEST_STRENGTH_BASELINE_CASE,
+    EvalCase,
+    EvalReport,
+    EvalRunner,
+    baseline_runner_args,
+    eval_progress,
+    report_from_dict,
+    report_to_dict,
+)
+from services import eval_telemetry, eval_verdicts, gate_integrity, lockfiles, test_strength
 import eval_tools
 from sandbox_resources import SANDBOX_EXHAUSTED_REASON
 from utils.safe_paths import UnsafePathError, is_within_any, resolve_within, validate_req_id
@@ -199,6 +208,7 @@ async def _execute_profile(
     checks: Optional[List[str]] = None,
     regression_reqs: Optional[List[str]] = None,
     reuse_cases: Optional[List[Dict[str, Any]]] = None,
+    baseline: bool = False,
 ) -> Tuple[EvalReport, str]:
     """Run the profile in the eval sandbox when configured (containers), otherwise in-process (dev).
     A caller that disconnects stops the eval: the sandbox request is closed (the sandbox then kills
@@ -215,6 +225,7 @@ async def _execute_profile(
             "checks": checks or None,
             "regression_reqs": regression_reqs or None,
             **({"reuse_cases": reuse_cases} if reuse_cases else {}),
+            **({"baseline": True} if baseline else {}),
         }
         async with httpx.AsyncClient(timeout=_sandbox_timeout()) as client:
             task = asyncio.create_task(client.post(f"{sandbox}/run", json=body))
@@ -228,7 +239,7 @@ async def _execute_profile(
             raise HTTPException(status_code=response.status_code, detail=f"eval sandbox: {response.text[:500]}")
         return report_from_dict(response.json()), "sandbox"
     cancel = threading.Event()
-    runner = EvalRunner(prj, cancel_event=cancel)
+    runner = EvalRunner(prj, cancel_event=cancel, **baseline_runner_args(req_id, baseline))
     task = asyncio.create_task(asyncio.to_thread(
         runner.run_profile,
         profile=str(profile_path), ltc=ltc, mode=mode, verdict=verdict, req_id=req_id, regression=regression,
@@ -594,6 +605,67 @@ def _with_structural_cases(rep: EvalReport, blockers: List[Dict[str, str]]) -> E
     return replace(rep, cases=cases, failed=rep.failed + len(blockers), status="FAIL")
 
 
+def _with_strength_case(rep: EvalReport, req_id: Optional[str], result: Optional[Dict[str, Any]]) -> EvalReport:
+    """The recorded test-strength result as the non-blocking check acceptance::test-strength."""
+    fields_ = test_strength.case_fields(result or {}, req_id or "") if req_id else None
+    if not fields_:
+        return rep
+    cases = [c for c in rep.cases if c.name != test_strength.CASE] + [EvalCase(**fields_)]
+    warnings = sum(1 for c in cases if not c.passed and not c.blocking)
+    status = rep.status if rep.status not in ("PASS", "PASS_WITH_WARNINGS") else ("PASS_WITH_WARNINGS" if warnings else "PASS")
+    return replace(rep, cases=cases, warnings=warnings, status=status)
+
+
+async def _measure_test_strength(
+    request: Optional[Request], prj: Path, profile_path: Path, ltc: Optional[Dict[str, Any]], req_id: str, rep: EvalReport
+) -> Optional[Dict[str, Any]]:
+    """Once per KIT generation (and when its tests change), when the REQ's own checks pass: its test
+    checks on the code before the KIT (services/test_strength.py). Recorded in the acceptance lock."""
+    if not test_strength.enabled() or not req_id:
+        return None
+    try:
+        known = gate_integrity.test_strength(prj, req_id)
+        if known is not None or not gate_integrity.has_lock(prj, req_id):
+            return known
+        if test_strength.own_failures(rep.cases) or _req_is_done(prj, req_id):
+            return None  # not yet (the tests may still change), or promoted (its code is in the tree)
+        names = test_strength.candidates(rep.cases, ltc)
+        if not names:
+            result: Dict[str, Any] = {"checks": []}
+        else:
+            base, _ = await _execute_profile(
+                request, prj, profile_path, ltc, "auto", None, req_id, regression=False, checks=names, baseline=True,
+            )
+            if not any(c.name == TEST_STRENGTH_BASELINE_CASE for c in base.cases):
+                result = {"checks": names, "error": "the eval sandbox did not run the baseline (rebuild it)"}
+            else:
+                result = test_strength.summarize(names, base.cases)
+        gate_integrity.record_test_strength(prj, req_id, result)
+        log.info("test strength req=%s weak=%s", req_id, result.get("weak"))
+        return result
+    except HTTPException as exc:
+        if exc.status_code == 499:
+            raise  # the caller went away: no result, measured again next time
+        log.warning("test strength of %s not measured: %s", req_id, exc.detail)
+        return None
+    except Exception as exc:  # a diagnosis only: the verdict stands without it
+        log.warning("test strength of %s not measured: %s", req_id, exc)
+        return None
+
+
+def _req_is_done(prj: Path, req_id: str) -> bool:
+    try:
+        plan = json.loads((prj / "docs" / "harper" / "plan.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    reqs = plan.get("reqs") or plan.get("req") or []
+    return any(
+        isinstance(r, dict) and str(r.get("id") or "").upper() == req_id.upper()
+        and str(r.get("status") or "").strip().lower() == "done"
+        for r in reqs
+    )
+
+
 def _case_payload(case: Any) -> Dict[str, Any]:
     return {
         "name": case.name,
@@ -765,6 +837,10 @@ async def eval_run(
         rep = _with_structural_cases(rep, _required_output_blockers(prj, args.req_id or rep.req_id))
     verdict_req = _effective_req_id(args.req_id, ltc, profile_path)   # None for the solution profile: it has no gate
     if not is_manual and not args.checks and not targeted and not agent_check and verdict_req:
+        # a test that passes without the KIT's code verifies nothing: a warning (services/test_strength.py)
+        strength = await _measure_test_strength(request, prj, profile_path, ltc, verdict_req, rep)
+        rep = _with_strength_case(rep, verdict_req, strength)
+    if not is_manual and not args.checks and not targeted and not agent_check and verdict_req:
         # the full verdict, reusable by the gate while its inputs stay the same
         try:
             eval_verdicts.record(prj, verdict_req, bool(args.regression), report_to_dict(rep))
@@ -908,6 +984,10 @@ async def gate_check(
         raise HTTPException(status_code=500, detail=f"gate_check error: {exc}") from exc
 
     structural_blockers = _required_output_blockers(prj, args.req_id or rep.req_id)
+    try:
+        rep = _with_strength_case(rep, req, gate_integrity.test_strength(prj, req) if req else None)
+    except Exception as exc:  # a diagnosis only
+        log.warning("test strength of %s not shown: %s", req, exc)
     effective_status = "FAIL" if structural_blockers else rep.status
     strict = _gate_strict_warnings(args.strict)
     warnings_accepted = effective_status == "PASS_WITH_WARNINGS" and not strict

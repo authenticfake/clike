@@ -240,6 +240,19 @@ The repair prompt (cloud) and the orchestrator enforce the same rules:
   `repair_amendment_accepted:...`.
 - **Other `ci/**`** (e.g. `ci/requirements.txt`): accepted and audited, so the repair can upgrade
   vulnerable dependencies. Vulnerable dependencies keep blocking the gate until upgraded.
+- **Quality configurations**, wherever the KIT keeps them (`src/`, `root/`, `ci/`): `pyproject.toml`,
+  `setup.cfg`, `tox.ini`, `ruff.toml`, `mypy.ini`, `pytest.ini`, `.flake8`, `.pylintrc`, `.coveragerc`,
+  `tsconfig*.json`, `jsconfig.json`, `biome.json`, `.eslintrc*`, `eslint.config.*`,
+  `.pre-commit-config.yaml`. They are locked with the tests at the first eval. A change that
+  **relaxes** a check is rejected (`repair_change_rejected:src/pyproject.toml: quality configuration
+  weakened: …`) and the file is kept as it was: a rule ignored or dropped, a strict flag turned off
+  (mypy `strict`, TypeScript `strict`/`noImplicitAny`…), a path excluded (build outputs excepted),
+  tests deselected (`--deselect`, `-k`, `--ignore`), a coverage threshold lowered, an ESLint rule
+  turned off or downgraded, a pre-commit hook removed, or a file that no longer parses. Any other
+  change (a dependency, a stricter rule, a new option) is accepted and audited. A configuration
+  added after the lock is not locked. Made outside the governed path, the same relaxation blocks the
+  gate (`GATE_BLOCKED_ACCEPTANCE_TAMPERED`, anomaly `weakened`); `--accept` does not accept it, a new
+  `/kit` does.
 - **Environment failures** (network, missing system tool) are not "fixed" in code: the model
   documents them in `docs/KIT_<REQ>.md`.
 - **Local agents**: the changes it made to locked files are governed (the rejected ones restored)
@@ -282,6 +295,31 @@ reported, not blocking. Without the file, a `SELF_REVIEW.md` that declares the K
 ("not complete or promotable", "remains unimplemented") blocks the same way, and so does a file
 that says everything is done while the self review says otherwise. Nothing declared either way
 (KITs written before this rule): the checks decide, as before.
+
+## Test strength: a test must fail without the KIT
+
+A check can only fail for what it tests: a test that asserts on its own fixtures, or a smoke that
+only imports, passes whatever the code does. Once per KIT generation, at the first eval where the
+REQ's own checks pass, the eval runs the REQ's **test checks** again on the code **before the KIT**:
+the promoted tree and the dependency KITs, without `runs/kit/<REQ>/src/` and the KIT's `root/`
+deliverables (the tests, the LTC and the tests of the areas stay). Linters, type checkers, builds,
+audits and coverage-only checks are not re-run.
+
+- A test check that **passes there too** verifies nothing the REQ adds: the eval reports the
+  non-blocking check `acceptance::test-strength` (*PASS_WITH_WARNINGS*), naming it. The gate passes
+  (it is a warning) unless `clike.gate.strictWarnings` is on. Add a test per acceptance criterion
+  that fails without the KIT and passes with it.
+- A check that fails there is strong; when its runner prints a summary, the note says how many of
+  its tests already passed before the KIT (only the others verify it). For a MODIFIED REQ, tests of
+  behaviour that did not change may pass before: at least one test must cover the change.
+- The result is kept in the acceptance lock (CLike's state directory): later evals and the gate
+  show it without running it again. A change of the tests or of the LTC (a test added, an accepted
+  amendment) measures again; a new `/kit` too.
+- Cost: one run of those checks in the sandbox (its setup included), no model tokens. A promoted
+  REQ (its code is already in the tree) is not measured. `CLIKE_EVAL_TEST_STRENGTH=0` in the
+  orchestrator environment turns it off.
+
+It works the same with a local agent and with a cloud model: it runs in the eval sandbox.
 
 ## Repository-root deliverables
 

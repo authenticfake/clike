@@ -24,10 +24,10 @@ class EvalCanonicalBmadTests(unittest.TestCase):
         self.assertIn("payload = _eval_payload(rep, args.req_id)", source)
         # the execution path (in-process or eval sandbox) is the canonical EvalRunner
         executor = _function_source("_execute_profile")
-        self.assertIn("runner = EvalRunner(prj, cancel_event=cancel)", executor)
+        self.assertIn("runner = EvalRunner(prj, cancel_event=cancel", executor)
         self.assertIn("runner.run_profile,", executor)
         sandbox = (Path(__file__).resolve().parents[1] / "eval_sandbox_app.py").read_text(encoding="utf-8")
-        self.assertIn("runner = EvalRunner(prj, cancel_event=cancel)", sandbox)
+        self.assertIn("runner = EvalRunner(prj, cancel_event=cancel", sandbox)
         self.assertIn("runner.run_profile,", sandbox)
         self.assertNotIn("methodology", sandbox.lower())
 

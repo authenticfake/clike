@@ -23,7 +23,7 @@ import eval_environment
 import eval_failures
 import eval_runtimes
 from services.gate_integrity import _DEFINES_TESTS_RE
-from services.root_files import KIT_ROOT_DIR, extra_root_files, is_allowed_root_path, root_policy
+from services.root_files import KIT_ROOT_DIR, area_test_roots, extra_root_files, is_allowed_root_path, root_policy
 from services.quality_context import req_scenarios
 from services import promoted_files
 import eval_tools
@@ -751,6 +751,14 @@ _STATIC_CHECK_TOKENS = frozenset({
     "types", "type", "typing", "mypy", "pyright", "tsc", "security", "sast", "secret", "secrets", "audit",
     "bandit", "vuln", "vulns", "coverage", "cov", "syntax", "sbom", "license", "licenses",
 })
+# Marks the report of a test-strength baseline run (EvalRunner(baseline=True)).
+TEST_STRENGTH_BASELINE_CASE = "env::test-strength-baseline"
+
+
+def baseline_runner_args(req_id: Optional[str], baseline: bool) -> Dict[str, Any]:
+    """EvalRunner arguments of a test-strength baseline run: its own work directory, the KIT's code left out."""
+    return {"eval_key": f"{req_id or 'REQ'}/test-strength", "baseline": True} if baseline else {}
+
 _TEST_CHECK_TOKENS = frozenset({
     "test", "tests", "unit", "integration", "e2e", "smoke", "pytest", "vitest", "jest", "playwright", "acceptance",
 })
@@ -1182,6 +1190,7 @@ class EvalRunner:
         regression: bool = False,
         extra_root_roots: Optional[List[Path]] = None,
         extra_test_roots: Optional[List[Path]] = None,
+        baseline: bool = False,
     ):
         self.project_root = project_root.resolve()
         # set when the caller goes away: the running check is stopped and no further check starts
@@ -1201,6 +1210,9 @@ class EvalRunner:
         # A regression run re-checks a promoted REQ: its own KIT source is already in the canonical
         # tree (merged with what later REQs changed), so the stale KIT copy is not overlaid.
         self.regression = regression
+        # Test strength: the REQ's tests on the code before its KIT (the promoted tree and the
+        # dependency KITs, without the KIT's own src/ and root/ deliverables).
+        self.baseline = baseline
         # the key of the live progress: set by the top-level run of a REQ only
         self._progress_key: Optional[str] = None
 
@@ -2148,7 +2160,7 @@ class EvalRunner:
             if mode != "skip":
                 history = self.project_root / "runs" / "kit" / dep.name / KIT_ROOT_DIR
                 layers.append((dep / KIT_ROOT_DIR, mode == "newer", history))
-        own_mode = self._kit_layer_mode(kit_root.name) if self.regression else "full"
+        own_mode = "skip" if self.baseline else self._kit_layer_mode(kit_root.name) if self.regression else "full"
         if own_mode != "skip":
             layers.append((kit_root / KIT_ROOT_DIR, own_mode == "newer", None))
         layers += [(Path(p), False, None) for p in self.extra_root_roots]
@@ -2174,6 +2186,11 @@ class EvalRunner:
                     target = work_kit_root / rel
                     target.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(layer / rel, target)
+        if self.baseline:
+            # before this KIT: none of its root/ deliverables, only the tests of the areas it delivers there
+            for tests in area_test_roots(self.project_root):
+                if (kit_root / KIT_ROOT_DIR / tests).is_dir():
+                    self._copy_tree_overlay(kit_root / KIT_ROOT_DIR / tests, work_kit_root / tests)
 
     def _copy_tree_overlay(
         self,
@@ -3149,7 +3166,11 @@ class EvalRunner:
                             history=self.project_root / "runs" / "kit" / dep_work.name / logical_root,
                         )
 
-                    if self.regression:
+                    if self.baseline:
+                        # the code before this KIT: its own source is left out (an empty src/
+                        # replaces the KIT's copy when nothing is promoted yet)
+                        composed_logical_root.mkdir(parents=True, exist_ok=True)
+                    elif self.regression:
                         self._overlay_kit_layer(
                             kit_root.name, kit_root / logical_root, composed_logical_root, self.project_root / logical_root
                         )
@@ -3827,6 +3848,12 @@ class EvalRunner:
             if not self.eval_key:
                 report.tools = eval_tools.installed_versions() or None
                 report.timings = self._timings(started_at)
+            if self.baseline:
+                # proof for the caller that this sandbox ran the checks without the KIT's code
+                report.cases.append(EvalCase(
+                    name=TEST_STRENGTH_BASELINE_CASE, passed=True, code=0, blocking=False, stderr="",
+                    stdout="[CLike EvalRunner] The checks above ran on the code before this KIT (its src/ and root/ left out).",
+                ))
             return report
         finally:
             cancelled = self.cancel_event is not None and self.cancel_event.is_set()

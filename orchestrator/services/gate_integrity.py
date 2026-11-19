@@ -9,6 +9,9 @@ The *acceptance surface* of a REQ is everything under ``runs/kit/<REQ>/test/`` a
 * Every eval/gate compares the current surface with the lock. Removed or
   modified files, LTC checks removed or made non-blocking, and newly added skip
   markers block the gate. Added files are reported but do not block.
+* The KIT's quality configurations (linters, type checkers, test runner options, coverage
+  thresholds, pre-commit hooks: services/quality_configs.py) are locked with it: a change that
+  relaxes one is rejected in a repair and blocks the gate; other changes stay free.
 * A new ``/kit`` for the REQ starts a new generation and invalidates the lock.
 * A manual gate override requires a reason and is appended to an audit log
   together with a digest of the REQ artifacts.
@@ -28,6 +31,7 @@ from typing import Any, Dict, List, Optional
 
 import sandbox_resources
 from config import runs_dir
+from services import quality_configs
 from utils.safe_paths import is_within_any, safe_segment, validate_req_id
 
 LOCK_SCHEMA = "clike.acceptance_lock.v1"
@@ -152,6 +156,38 @@ def surface_manifest(project_root: Path, req_id: str) -> Dict[str, str]:
     return files
 
 
+_QUALITY_MAX_BYTES = 256 * 1024
+
+
+def quality_snapshot(project_root: Path, req_id: str) -> Dict[str, str]:
+    """Text of the KIT's quality configurations (linters, type checkers, test runner options,
+    coverage thresholds, pre-commit hooks), wherever the KIT keeps them: locked with the
+    acceptance surface, so a repair cannot make a check pass by relaxing them."""
+    root = kit_root(project_root, req_id)
+    out: Dict[str, str] = {}
+    if not root.is_dir():
+        return out
+    for path in sorted(root.rglob("*")):
+        if len(out) >= 200:
+            break
+        rel = path.relative_to(root).as_posix()
+        if not quality_configs.is_quality_config(rel) or path.is_symlink() or not path.is_file():
+            continue
+        if any(part in _OUTPUT_DIRS or part.endswith(".egg-info") for part in rel.split("/")[:-1]):
+            continue
+        try:
+            if path.stat().st_size > _QUALITY_MAX_BYTES:
+                continue
+            out[rel] = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+    return out
+
+
+def _quality_issues(rel: str, before: str, after: str) -> List[str]:
+    return [f"quality configuration weakened: {issue}" for issue in quality_configs.weakening(rel, before, after)]
+
+
 def _snapshot_texts(project_root: Path, req_id: str, rels: List[str]) -> Dict[str, str]:
     """Text of LTC/test files kept in the lock to explain later changes (bounded)."""
     root = kit_root(project_root, req_id)
@@ -209,6 +245,7 @@ def ensure_lock(project_root: Path, req_id: str) -> Dict[str, Any]:
         "created_at": time.time(),
         "files": files,
         "texts": _snapshot_texts(project_root, req_id, list(files)),
+        "quality": quality_snapshot(project_root, req_id),
         "digest": hashlib.sha256(json.dumps(files, sort_keys=True).encode()).hexdigest(),
     }
     _write_json(lock_path, lock)
@@ -303,11 +340,30 @@ def compare_with_lock(project_root: Path, req_id: str, lock: Dict[str, Any]) -> 
             details = _ltc_weakening(old_text, new_text)
             if details:
                 entry.update(kind="weakened", details=details)
+        elif rel in (lock.get("quality") or {}) and _quality_issues(rel, lock["quality"][rel], new_text):
+            entry.update(kind="weakened", details=_quality_issues(rel, lock["quality"][rel], new_text))
         elif old_text is not None:
             added = len(_SKIP_MARKER_RE.findall(new_text)) - len(_SKIP_MARKER_RE.findall(old_text))
             if added > 0:
                 entry.update(kind="skip_added", details=[f"{added} skip/disable marker(s) added"])
         anomalies.append(entry)
+
+    # quality configurations (src/, root/…): only a change that relaxes them is an anomaly
+    flagged = {a["path"] for a in anomalies}
+    for rel, before in sorted((lock.get("quality") or {}).items()):
+        path = root / rel
+        if rel in flagged:
+            continue
+        if not path.is_file():
+            anomalies.append({"path": rel, "kind": "weakened", "details": ["quality configuration removed"]})
+            continue
+        try:
+            after = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        issues = _quality_issues(rel, before, after) if after != before else []
+        if issues:
+            anomalies.append({"path": rel, "kind": "weakened", "details": issues})
 
     added_files = sorted(set(current) - set(locked))
     return {
@@ -317,6 +373,32 @@ def compare_with_lock(project_root: Path, req_id: str, lock: Dict[str, Any]) -> 
         "lock_digest": lock.get("digest"),
         "lock_generation": lock.get("generation"),
     }
+
+
+# --- test strength ---------------------------------------------------------------------
+
+def surface_digest(project_root: Path, req_id: str) -> str:
+    """Digest of the REQ's acceptance surface as it is now (tests and LTC)."""
+    return hashlib.sha256(json.dumps(surface_manifest(project_root, req_id), sort_keys=True).encode()).hexdigest()
+
+
+def test_strength(project_root: Path, req_id: str) -> Optional[Dict[str, Any]]:
+    """The test-strength result of the REQ's current KIT generation, while its tests are unchanged
+    (a repair that adds a test, or an accepted amendment, measures again)."""
+    if not has_lock(project_root, req_id):
+        return None
+    lock = _read_json(_req_state_path(project_root, req_id, "lock")) or {}
+    result = lock.get("test_strength")
+    if not isinstance(result, dict) or result.get("surface") != surface_digest(project_root, req_id):
+        return None
+    return result
+
+
+def record_test_strength(project_root: Path, req_id: str, result: Dict[str, Any]) -> None:
+    """Keep the test-strength result in the lock (state dir, not writable by agents)."""
+    lock = ensure_lock(project_root, req_id)
+    lock["test_strength"] = {**result, "surface": surface_digest(project_root, req_id), "at": time.time()}
+    _write_json(_req_state_path(project_root, req_id, "lock"), lock)
 
 
 # --- audited override --------------------------------------------------------------
@@ -723,6 +805,7 @@ def amend_acceptance_surface(
     root = kit_root(project_root, req)
     files: Dict[str, str] = dict(lock.get("files") or {})
     texts: Dict[str, str] = dict(lock.get("texts") or {})
+    quality: Dict[str, str] = dict(lock.get("quality") or {})
     accepted: List[str] = []
     rejected: Dict[str, List[str]] = {}
     unlocked: List[str] = []
@@ -732,6 +815,22 @@ def amend_acceptance_surface(
         rel = str(raw_rel or "").replace("\\", "/").lstrip("/")
         if files.get(rel) == hashlib.sha256(content.encode("utf-8")).hexdigest():
             continue  # already the locked content
+        if rel in quality and not rel.startswith(("ci/", "test/")) and quality[rel] == content:
+            continue  # unchanged
+        if rel in quality and not rel.startswith("test/"):
+            # a quality configuration may change (a dependency, a stricter rule), never relax a check
+            issues = _quality_issues(rel, quality[rel], content)
+            if issues:
+                rejected[rel] = issues
+                continue
+            quality[rel] = content
+            if not rel.startswith("ci/"):
+                kinds[rel] = "quality_config"
+                accepted.append(rel)
+                continue
+        elif quality_configs.is_quality_config(rel) and not rel.startswith(("ci/", "test/")):
+            unlocked.append(rel)  # not in the lock (added after it): kept as written
+            continue
         if rel.startswith("test/"):
             if rel not in files:
                 # not in the lock (added after it, e.g. by an earlier repair): not locked acceptance,
@@ -764,10 +863,12 @@ def amend_acceptance_surface(
         accepted.append(rel)
     for raw_rel in deleted or []:
         rel = str(raw_rel or "").replace("\\", "/").lstrip("/")
-        if rel not in files:
+        if rel not in files and rel not in quality:
             continue
         before_text = previous.get(rel) or ""
-        if not rel.startswith("test/"):
+        if rel in quality and not rel.startswith("test/"):
+            rejected[rel] = ["quality configuration weakened: quality configuration removed"]
+        elif not rel.startswith("test/"):
             rejected[rel] = ["only test-support files may be removed"]
         elif _DEFINES_TESTS_RE.search(before_text):
             rejected[rel] = ["the file defines tests: locked tests are never removed"]
@@ -795,6 +896,7 @@ def amend_acceptance_surface(
         lock.update({
             "files": files,
             "texts": texts,
+            "quality": quality,
             "digest": hashlib.sha256(json.dumps(files, sort_keys=True).encode()).hexdigest(),
             "amendments": [*(lock.get("amendments") or []), entry],
         })

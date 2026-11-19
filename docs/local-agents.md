@@ -295,7 +295,9 @@ Both local executors currently support:
   first eval passes instead of starting a repair. The full eval, with the regression, still decides.
 
 Governance with agents: the agent writes directly, so the extension snapshots `test/` and `ci/`
-before a repair or a code-only KIT, submits what changed to `POST /v1/acceptance/amend` and
+(and the KIT's quality configurations: `pyproject.toml`, `tsconfig*.json`, ESLint, pre-commit…,
+see [auto-eval](auto-eval.md#what-the-repair-may-change-governance)) before a repair or a code-only
+KIT, submits what changed to `POST /v1/acceptance/amend` and
 restores what is rejected (and any deleted file), before the phase commit. Safe mechanical lint fixes (e.g. import order)
 computed by the orchestrator come back as `format_fixes` and are written before the first eval.
 
