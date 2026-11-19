@@ -115,7 +115,8 @@ class EvalRegressionTests(_RegressionProject):
         self.assertNotIn("partial", full)
         self.assertIn("reused_targeted_at", full)
         by = {c["name"]: c for c in full["cases"]}
-        own = [n for n in by if not n.startswith(("regression::", "env::", "structure::", "ltc::"))]
+        # the REQ's checks (not CLike's own cases: the test strength is measured after the run)
+        own = [n for n in by if not n.startswith(("regression::", "env::", "structure::", "ltc::", "acceptance::test-strength"))]
         self.assertTrue(own and all(reused in by[n]["stdout"] for n in own), own)
         req1 = [n for n in by if n.startswith("regression::REQ-001::") and "::env::" not in n]
         req3 = [n for n in by if n.startswith("regression::REQ-003::")]

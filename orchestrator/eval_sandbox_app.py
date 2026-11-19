@@ -25,7 +25,7 @@ from pydantic import BaseModel
 import eval_tools
 import sandbox_resources
 from services import lockfiles
-from eval_runner import _SECRET_ENV_NAME_RE, EvalRunner, eval_progress, report_to_dict
+from eval_runner import _SECRET_ENV_NAME_RE, EvalRunner, baseline_runner_args, eval_progress, report_to_dict
 from services.gate_integrity import allowed_eval_roots
 from utils.safe_paths import UnsafePathError, is_within_any, resolve_within
 
@@ -51,6 +51,8 @@ class SandboxRunRequest(BaseModel):
     regression_reqs: Optional[List[str]] = None
     # results of a run on the same inputs, taken instead of running those checks again
     reuse_cases: Optional[List[Dict[str, Any]]] = None
+    # test strength: run the checks on the code before the REQ's KIT (services/test_strength.py)
+    baseline: bool = False
 
 
 @app.get("/health")
@@ -113,7 +115,7 @@ async def run(req: SandboxRunRequest, request: Request):
 
     log.info("run project=%s profile=%s req=%s mode=%s", prj.name, profile_path.name, req.req_id, req.mode)
     cancel = threading.Event()
-    runner = EvalRunner(prj, cancel_event=cancel)
+    runner = EvalRunner(prj, cancel_event=cancel, **baseline_runner_args(req.req_id, req.baseline))
     task = asyncio.create_task(asyncio.to_thread(
         runner.run_profile,
         profile=str(profile_path), ltc=ltc, mode=req.mode or "auto", verdict=req.verdict, req_id=req.req_id,

@@ -26,7 +26,11 @@ LTC = {
         {"id": "lint", "command": "true", "blocking": True},
     ],
 }
-TEST_PY = "import sys\nassert 1 + 1 == 2\nprint('ok')\n"
+# the test verifies the KIT's code (it fails without it: test strength)
+TEST_PY = (
+    "import pathlib, sys\nsys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / 'src'))\n"
+    "from app import VALUE\nassert VALUE == 2\nprint('ok')\n"
+)
 
 
 class GateIntegrityTests(unittest.TestCase):
@@ -58,6 +62,7 @@ class GateIntegrityTests(unittest.TestCase):
         (kit / "src").mkdir()
         (kit / "ci" / "LTC.json").write_text(json.dumps(LTC))
         (kit / "test" / "test_app.py").write_text(TEST_PY)
+        (kit / "src" / "app.py").write_text("VALUE = 1 + 1\n")
         self.kit = kit
 
     # helpers
@@ -194,7 +199,7 @@ class GateIntegrityTests(unittest.TestCase):
 
     def test_source_changes_are_allowed(self):
         self._eval()
-        (self.kit / "src" / "app.py").write_text("print('fixed')\n")
+        (self.kit / "src" / "app.py").write_text("VALUE = 2  # fixed\n")
         self.assertEqual(self._gate().json()["gate"], "PASS")
 
     def test_new_kit_generation_rebaselines_the_lock(self):
@@ -268,7 +273,7 @@ class GateIntegrityTests(unittest.TestCase):
         entry = json.loads(audit[-1])
         self.assertEqual(entry["audit_id"], body["override"]["audit_id"])
         self.assertEqual(entry["author"], "dev")
-        self.assertEqual(entry["artifacts"]["files"], 2)
+        self.assertEqual(entry["artifacts"]["files"], 3)  # LTC, test, src
         self.assertEqual(len(entry["artifacts"]["sha256"]), 64)
 
     def _accept(self, reason="completed the service env by hand (commit abc)"):

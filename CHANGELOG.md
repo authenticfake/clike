@@ -4,6 +4,27 @@ All notable changes to CLike. Extension, orchestrator and gateway share one vers
 
 ## [Unreleased]
 
+## [1.11.0] — 2026-11-19 — Tests that verify the change
+
+A REQ passed every eval with tests that only proved their own fixtures (lead-generation v3: the delivery passed,
+then a first real campaign stopped at once). Two checks make the acceptance harder to fake.
+
+### Added
+
+- **Test strength: a test must fail without the KIT.** Once per KIT generation, at the first eval where the REQ's
+  own checks pass, its test checks run again in the sandbox on the code before the KIT (the promoted tree and the
+  dependency KITs, without the KIT's own source and repository-root deliverables). A test check that passes there
+  too verifies nothing the REQ adds: the eval reports it as the non-blocking check `acceptance::test-strength`
+  (a warning, the gate passes unless warnings are strict), with how many tests of the other checks already passed
+  before. The result is kept with the acceptance lock and measured again only when the tests change. One sandbox
+  run, no model tokens, the same for local agents and cloud models; `CLIKE_EVAL_TEST_STRENGTH=0` turns it off.
+- **Quality configurations are locked with the tests.** `pyproject.toml`, `setup.cfg`, `ruff.toml`, `mypy.ini`,
+  `pytest.ini`, `.flake8`, `.coveragerc`, `tsconfig*.json`, `biome.json`, ESLint and pre-commit configurations,
+  wherever the KIT keeps them, are locked at the first eval. A repair (cloud or local agent) that relaxes one — a
+  rule ignored, a strict flag turned off, a path excluded, tests deselected, a coverage threshold lowered, a hook
+  removed — is rejected and the file kept as it was; any other change (a dependency, a stricter rule) is accepted
+  and audited. The same relaxation made outside a repair blocks the gate.
+
 ## [1.10.2] — 2026-11-16 — A promoted REQ reaches the default branch
 
 ### Fixed

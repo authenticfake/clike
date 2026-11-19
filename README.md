@@ -5,7 +5,7 @@
 [![Made with Python](https://img.shields.io/badge/Made%20with-Python%203.12-3776AB?logo=python)](https://www.python.org/)
 [![VS Code Extension](https://img.shields.io/badge/VS%20Code-Extension-007ACC?logo=visualstudiocode)](extensions/vscode)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.10.2-informational)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.11.0-informational)](CHANGELOG.md)
 
 > **From intent to impact.** CLike turns an idea into reviewed, tested and promotable software
 > through a governed lifecycle in which cloud models and local coding agents execute, while
@@ -62,11 +62,11 @@ Models and agents execute.  Eval and Gate decide.
 
 | Version | Date | Milestone |
 |---|---|---|
-| 1.9.10 | 2026-11 | An already broken test stays already broken: the same failing tests with other values in their messages are not a new error of the candidate. See [CHANGELOG](CHANGELOG.md). |
 | 1.9.11 | 2026-11 | The failed tests read from the whole output: an already failing test with other values in its message is recognised in a real report. See [CHANGELOG](CHANGELOG.md). |
 | 1.10.0 | 2026-11 | Where the time and the money go: the telemetry portal drills a phase down to its requirements, ranks the requirements by cost, time, repairs and failed evals, and gives KPIs and an estimate for the next ones. See [CHANGELOG](CHANGELOG.md). |
 | 1.10.1 | 2026-11 | The eval after a good KIT: /plan keeps what the release declared (amended REQs, superseded checks, regression environment), a regression whose environment did not come up runs once more, a sandbox database slow under load is retried, a check run alone gets its setup, and an interrupted eval runs again. See [CHANGELOG](CHANGELOG.md). |
-| **1.10.2** | 2026-11 | A promoted REQ reaches the default branch: the gate merge is retried when another git process holds the index for a moment, and /autopilot stops instead of building again a REQ promoted on a branch it is not on. See [CHANGELOG](CHANGELOG.md). |
+| 1.10.2 | 2026-11 | A promoted REQ reaches the default branch: the gate merge is retried when another git process holds the index for a moment, and /autopilot stops instead of building again a REQ promoted on a branch it is not on. See [CHANGELOG](CHANGELOG.md). |
+| **1.11.0** | 2026-11 | Tests that verify the change: a test check that passes without the KIT's code is reported (test strength), and a repair can no longer relax a linter, a type checker, test options or a coverage threshold to pass. See [CHANGELOG](CHANGELOG.md). |
 
 The last five versions; every version and change is in the [CHANGELOG](CHANGELOG.md).
 

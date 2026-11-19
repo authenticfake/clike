@@ -426,3 +426,28 @@ test('an eval broken before any verdict (timeout, sleep, disconnection) is run a
   assert.equal(evalInterrupted({ status: 'PASS', cases: [], summary: 'socket hang up' }), false);
   assert.equal(evalInterrupted(null), false);
 });
+
+test('a repair is governed on the quality configurations too, wherever the KIT keeps them', () => {
+  const { acceptanceChanges, isQualityConfig, snapshotAcceptanceSurface } = require('../auto-eval');
+  const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'clike-quality-'));
+  const kit = path.join(ws, 'runs', 'kit', 'REQ-001');
+  for (const [rel, text] of Object.entries({
+    'src/app.py': 'VALUE = 2\n',
+    'src/pyproject.toml': '[tool.mypy]\nstrict = true\n',
+    'root/web/tsconfig.json': '{"compilerOptions": {"strict": true}}',
+    'root/web/node_modules/x/tsconfig.json': '{}',
+    'test/test_app.py': 'assert True\n',
+  })) {
+    fs.mkdirSync(path.dirname(path.join(kit, rel)), { recursive: true });
+    fs.writeFileSync(path.join(kit, rel), text);
+  }
+  const before = snapshotAcceptanceSurface(ws, 'REQ-001');
+  assert.deepEqual(Object.keys(before).sort(), ['root/web/tsconfig.json', 'src/pyproject.toml', 'test/test_app.py']);
+  fs.writeFileSync(path.join(kit, 'src/pyproject.toml'), '[tool.mypy]\nstrict = false\n');
+  fs.writeFileSync(path.join(kit, 'src/app.py'), 'VALUE = 3\n');
+  const { modified, deleted } = acceptanceChanges(before, snapshotAcceptanceSurface(ws, 'REQ-001'));
+  assert.deepEqual(Object.keys(modified), ['src/pyproject.toml']);  // submitted to the orchestrator's governance
+  assert.deepEqual(deleted, []);
+  assert.equal(isQualityConfig('eslint.config.mjs'), true);
+  assert.equal(isQualityConfig('package.json'), false);
+});

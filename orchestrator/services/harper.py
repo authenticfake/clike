@@ -72,7 +72,7 @@ from services import gateway_http
 from services.phase_context import PhaseContext
 from services.cloud_prompt.messages import compose_phase_messages
 from utils.safe_paths import resolve_within, validate_req_id
-from services import gate_integrity
+from services import gate_integrity, quality_configs
 from services.kit_format import autofix_kit_files
 from services.methodologies.quality_contracts import (
     evaluate_lane_guide_structure,
@@ -2177,15 +2177,19 @@ def _locked_acceptance_files(payload: Dict[str, Any], req_id: str) -> List[Dict[
 
 def _apply_repair_governance(payload: Dict[str, Any], out: Dict[str, Any], req_id: str) -> None:
     """Auto-eval repair or acceptance-first code KIT: source/docs pass through; acceptance-surface
-    changes (ci/, test/) are accepted only as audited, non-weakening amendments of the lock."""
+    changes (ci/, test/) are accepted only as audited, non-weakening amendments of the lock, and so
+    are the quality configurations of the KIT (pyproject.toml, tsconfig, eslint…) wherever they are:
+    a change that relaxes one is rejected (services/quality_configs.py)."""
     repair = _kit_repair(payload)
     prefix = f"runs/kit/{req_id}/"
     kept: List[Dict[str, Any]] = []
     changes: Dict[str, str] = {}
+    # without an eval workspace there is no lock: quality configurations pass through as before
+    governed_quality = _acceptance_project_root(payload) is not None
     for item in out.get("files") or []:
         path = str(item.get("path") or "").replace("\\", "/").lstrip("/")
         rel = path[len(prefix):] if path.startswith(prefix) else ""
-        if rel.startswith(("ci/", "test/")):
+        if rel.startswith(("ci/", "test/")) or (rel and governed_quality and quality_configs.is_quality_config(rel)):
             changes[rel] = str(item.get("content") or "")
         else:
             kept.append(item)

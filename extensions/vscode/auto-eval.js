@@ -90,7 +90,21 @@ function collectRepairFiles(workspaceRoot, reqId) {
   return files;
 }
 
-/** Text content of the REQ's acceptance surface (runs/kit/<REQ>/{test,ci}/**), KIT-relative. */
+// Quality configurations (linters, type checkers, test runner options, coverage thresholds,
+// pre-commit hooks), wherever the KIT keeps them: governed like the acceptance surface, a repair may
+// not relax them (orchestrator services/quality_configs.py, same names).
+const QUALITY_CONFIG_RE = new RegExp(
+  '^(?:pyproject\\.toml|\\.?ruff\\.toml|setup\\.cfg|tox\\.ini|\\.?mypy\\.ini|pytest\\.ini|\\.flake8|\\.?pylintrc|\\.coveragerc'
+  + '|\\.pre-commit-config\\.yaml|(?:tsconfig(?:\\.[\\w.-]+)?|jsconfig|biome)\\.jsonc?'
+  + '|\\.eslintrc(?:\\.(?:json|ya?ml|js|cjs|mjs|ts|mts|cts))?|eslint\\.config\\.(?:js|mjs|cjs|ts|mts|cts))$'
+);
+
+function isQualityConfig(rel) {
+  return QUALITY_CONFIG_RE.test(String(rel || '').split('/').pop());
+}
+
+/** Text content of the REQ's acceptance surface (runs/kit/<REQ>/{test,ci}/**) and of its quality
+ * configurations, KIT-relative. */
 function snapshotAcceptanceSurface(workspaceRoot, reqId) {
   const snapshot = {};
   // the tests of a project's areas are delivered through root/<area tests>/…: acceptance like test/
@@ -98,7 +112,9 @@ function snapshotAcceptanceSurface(workspaceRoot, reqId) {
   for (const file of collectRepairFiles(workspaceRoot, reqId)) {
     const rel = file.path.slice(`runs/kit/${reqId}/`.length);
     // Markdown (ci/HOWTO.md) documents how to run the checks: not acceptance, freely editable.
-    if (surface.some((s) => rel.startsWith(s)) && !rel.toLowerCase().endsWith('.md')) snapshot[rel] = file.content;
+    if ((surface.some((s) => rel.startsWith(s)) && !rel.toLowerCase().endsWith('.md')) || isQualityConfig(rel)) {
+      snapshot[rel] = file.content;
+    }
   }
   return snapshot;
 }
@@ -552,5 +568,6 @@ module.exports = {
   repairNotesMarkdown,
   restoreAcceptanceFiles,
   snapshotAcceptanceSurface,
+  isQualityConfig,
   writeRepairNotes,
 };
